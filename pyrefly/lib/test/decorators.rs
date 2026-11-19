@@ -1515,6 +1515,87 @@ assert_type(Child().inherited(), int)
 );
 
 testcase!(
+    test_class_decorator_preserves_generic_class,
+    env_typed_only(),
+    r#"
+from typing import Callable, Generic, TypeVar, assert_type, overload
+
+T = TypeVar("T")
+
+# This is the overloaded class-preserving signature used by rich.repr.auto.
+@overload
+def auto(cls: type[T]) -> type[T]: ...
+@overload
+def auto(*, angular: bool = False) -> Callable[[type[T]], type[T]]: ...
+def auto(cls=None, *, angular=False):
+    return cls if cls is not None else auto
+
+@auto
+class Bare[T]:
+    def method(self, value: T) -> T:
+        return value
+
+@auto(angular=True)
+class Factory(Generic[T]):
+    def method(self, value: T) -> T:
+        return value
+
+class BareChild(Bare[int]): ...
+class FactoryChild(Factory[str]): ...
+
+assert_type(Bare[int]().method(1), int)
+assert_type(Factory[str]().method("value"), str)
+assert_type(BareChild().method(1), int)
+assert_type(FactoryChild().method("value"), str)
+    "#,
+);
+
+testcase!(
+    bug = "Class decorators are not applied",
+    test_class_decorator_preserves_returned_type_arguments,
+    env_typed_only(),
+    r#"
+from typing import Any, Callable, assert_type, cast
+
+def identity[T](cls: type[T]) -> type[T]:
+    return cls
+
+@cast("Callable[[type[Box]], type[Box[int]]]", identity)
+class Box[T]:
+    def __init__(self, value: T) -> None:
+        self.value = value
+
+assert_type(Box(1).value, int)
+Box("bad")
+
+@cast("Callable[[type[Erased]], type[Erased[Any]]]", identity)
+class Erased[T]:
+    def __init__(self, value: T) -> None:
+        self.value = value
+
+assert_type(Erased(1).value, int)
+    "#,
+);
+
+testcase!(
+    test_class_decorator_generic_noncallable_result,
+    env_typed_only(),
+    r#"
+from typing import assert_type
+
+def instances[T](cls: type[T]) -> list[T]: ...
+
+# The class's type parameters can't escape into a non-generic value, so the result is partly
+# unknown and the class is kept.
+@instances
+class Box[T]:
+    value: T
+
+assert_type(Box[int]().value, int)
+    "#,
+);
+
+testcase!(
     test_class_decorator_dataclass_preserves_class,
     env_typed_only(),
     r#"
