@@ -929,6 +929,39 @@ def f(x: int) -> int:
     "#,
 );
 
+// https://github.com/pyrefly-org/pyrefly/issues/3741
+testcase!(
+    bug = "Calling `final` on a class has no effect and should be reported",
+    test_final_called_as_function,
+    r#"
+import typing_extensions
+from typing import Any, Callable, final
+
+MyClass = final(type("MyClass", (), {}))
+class SubclassOfMyClass(MyClass): ...
+
+class A: ...
+FinalA = typing_extensions.final(A)
+class SubclassOfA(FinalA): ...
+
+def get_class() -> type[A]: ...
+final(get_class())
+
+# Calling `final` on a function is equivalent to decorating it.
+class B:
+    def m(self) -> None: ...
+    m = final(m)
+class SubclassOfB(B):
+    def m(self) -> None: ...  # E: `m` is declared as final in parent class `B`
+
+# These arguments may be functions, so the call may be intentional.
+def get_any() -> Any: ...
+def get_callable() -> Callable[[], None]: ...
+final(get_any())
+final(get_callable())
+    "#,
+);
+
 testcase!(
     test_callable_class_as_decorator,
     r#"
