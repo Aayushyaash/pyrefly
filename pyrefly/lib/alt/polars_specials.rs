@@ -1468,9 +1468,17 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         })
     }
 
-    fn polars_csv_schema_overrides(&self, expr: Option<&Expr>) -> Option<CsvDtypeOverrides> {
+    fn polars_csv_schema_overrides(
+        &self,
+        expr: Option<&Expr>,
+        schema: &CsvSchema,
+    ) -> Option<CsvDtypeOverrides> {
         Some(match expr {
             Some(Expr::NoneLiteral(_)) => CsvDtypeOverrides::Unchanged,
+            // A complete schema changes only for positional dtype overrides.
+            Some(Expr::Dict(_)) if matches!(schema, CsvSchema::Given(_)) => {
+                CsvDtypeOverrides::Unchanged
+            }
             Some(Expr::Dict(dict)) => {
                 let mut overrides = SmallMap::with_capacity(dict.items.len());
                 for item in &dict.items {
@@ -1632,7 +1640,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         }
 
         let schema = self.polars_csv_schema(schema)?;
-        let overrides = self.polars_csv_schema_overrides(overrides)?;
+        let overrides = self.polars_csv_schema_overrides(overrides, &schema)?;
         let new_columns = self.polars_csv_names(new_columns)?;
         let row_index_name = self.polars_optional_csv_name(row_index_name)?;
         let common = PolarsCsvCommonOptions {
@@ -1682,7 +1690,6 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             row_index_name,
         } = common;
         let (mut columns, selection) = match schema {
-            // A complete schema changes only for positional dtype overrides.
             CsvSchema::Given(columns) => (columns, selection),
             CsvSchema::Missing => {
                 let CsvColumnSelection::Names(names) = selection else {

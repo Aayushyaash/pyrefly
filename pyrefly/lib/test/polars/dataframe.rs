@@ -237,6 +237,10 @@ schema = {"a": pl.Int64, "b": pl.Int64, "c": pl.String}
 reveal_type(pl.read_csv("data.csv", schema=schema))  # E: revealed type: DataFrame
 reveal_type(pl.read_csv("data.csv", schema={"a": pl.Int64, "b": pl.Int64, "c": pl.String}, schema_overrides={"a": pl.String}))  # E: revealed type: DataFrame[a: Int64, b: Int64, c: String]
 reveal_type(pl.read_csv("data.csv", schema={"a": pl.Int64, "b": pl.Int64, "c": pl.String}, schema_overrides=[pl.String, pl.Float32]))  # E: revealed type: DataFrame[a: String, b: Float32, c: String]
+
+def f(key: str, overrides: dict[str, object]) -> None:
+    reveal_type(pl.read_csv("data.csv", schema={"a": pl.Int64}, schema_overrides={key: pl.String}))  # E: revealed type: DataFrame[a: Int64]
+    reveal_type(pl.read_csv("data.csv", schema={"a": pl.Int64}, schema_overrides={**overrides}))  # E: revealed type: DataFrame[a: Int64]
 "#,
 );
 
