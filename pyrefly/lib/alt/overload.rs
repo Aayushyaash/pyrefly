@@ -532,39 +532,12 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             );
         }
         if matched {
-            // If the selected overload is deprecated, we log a deprecation error.
-            if let Some(deprecation) = &closest_overload.func.1.metadata.flags.deprecation {
-                let header = format!(
-                    "Call to deprecated overload `{}`",
-                    closest_overload
-                        .func
-                        .1
-                        .metadata
-                        .kind
-                        .format(self, self.module().name())
-                );
-                let detail = deprecation.as_error_detail();
-                let mut error_builder =
-                    errors.error_builder(arguments_range, ErrorKind::Deprecated, header);
-                if let Some(detail) = detail {
-                    error_builder = error_builder.with_detail(detail);
-                }
-                if let FunctionKind::Def(id) = &closest_overload.func.1.metadata.kind {
-                    let replacement = if id.has_toplevel_qname("contextlib", "contextmanager") {
-                        Some(ContextManagerKind::Sync)
-                    } else if id.has_toplevel_qname("contextlib", "asynccontextmanager") {
-                        Some(ContextManagerKind::Async)
-                    } else {
-                        None
-                    };
-                    if let Some(kind) = replacement {
-                        error_builder = error_builder.with_quick_fix(
-                            ErrorQuickFix::ReplaceDeprecatedContextManagerReturn(kind),
-                        );
-                    }
-                }
-                error_builder.with_context(self, context).emit();
-            }
+            self.report_deprecated_overload(
+                &closest_overload.func.1,
+                arguments_range,
+                errors,
+                context,
+            );
             errors.extend(closest_overload.arg_errors);
             call_errors.extend(closest_overload.call_errors);
             if let Ok(specialization_errors) =
@@ -620,6 +593,41 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 closest_overload.argmap,
             )
         }
+    }
+
+    /// Report a call to `func` if it is a deprecated overload signature.
+    pub(crate) fn report_deprecated_overload(
+        &self,
+        func: &Function,
+        range: TextRange,
+        errors: &ErrorCollector,
+        context: Option<&dyn Fn() -> ErrorContext>,
+    ) {
+        let Some(deprecation) = &func.metadata.flags.deprecation else {
+            return;
+        };
+        let header = format!(
+            "Call to deprecated overload `{}`",
+            func.metadata.kind.format(self, self.module().name())
+        );
+        let mut error_builder = errors.error_builder(range, ErrorKind::Deprecated, header);
+        if let Some(detail) = deprecation.as_error_detail() {
+            error_builder = error_builder.with_detail(detail);
+        }
+        if let FunctionKind::Def(id) = &func.metadata.kind {
+            let replacement = if id.has_toplevel_qname("contextlib", "contextmanager") {
+                Some(ContextManagerKind::Sync)
+            } else if id.has_toplevel_qname("contextlib", "asynccontextmanager") {
+                Some(ContextManagerKind::Async)
+            } else {
+                None
+            };
+            if let Some(kind) = replacement {
+                error_builder = error_builder
+                    .with_quick_fix(ErrorQuickFix::ReplaceDeprecatedContextManagerReturn(kind));
+            }
+        }
+        error_builder.with_context(self, context).emit();
     }
 
     /// Read and combine the branches of an overloaded value, dropping branches that don't apply.
