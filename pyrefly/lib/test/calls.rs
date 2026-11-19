@@ -1159,6 +1159,28 @@ f("foo") # No error
 );
 
 testcase!(
+    bug = "A deprecated overload selected by the receiver's type is not reported",
+    test_deprecated_overload_selected_by_receiver,
+    r#"
+from typing import overload
+from warnings import deprecated
+
+class C[T]:
+    @deprecated("DEPRECATED")
+    @overload
+    def f(self: C[int], x: int) -> int: ...
+    @overload
+    def f(self: C[str], x: str) -> str: ...
+    def f(self, x: int | str) -> int | str:
+        return x
+
+def test(ci: C[int], cs: C[str]):
+    ci.f(0)
+    cs.f("foo") # No error
+    "#,
+);
+
+testcase!(
     test_nondeprecated_overload_shutil,
     r#"
 import shutil
