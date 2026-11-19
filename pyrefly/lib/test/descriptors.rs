@@ -9,6 +9,53 @@ use crate::test::util::TestEnv;
 use crate::testcase;
 
 testcase!(
+    test_property_subclass_nominal_class_access,
+    r#"
+from typing import assert_type
+
+class Property(property): ...
+
+class C:
+    @Property
+    def value(self) -> int:
+        return 1
+    def get_constructed(self) -> int:
+        return 1
+    constructed = Property(get_constructed)
+
+p: Property = C.value
+q: Property = C.constructed
+
+def accept(value: Property) -> None:
+    pass
+
+accept(C.value)
+accept(C.constructed)
+assert_type(p, Property)
+assert_type(q, Property)
+    "#,
+);
+
+testcase!(
+    test_property_subclass_factory,
+    r#"
+from typing import assert_type
+
+class Property(property): ...
+
+def getter(self) -> int:
+    return 1
+
+def make() -> Property:
+    return Property(getter)
+
+p: Property = Property(getter)
+assert_type(make(), Property)
+assert_type(p, Property)
+    "#,
+);
+
+testcase!(
     test_descriptor_instance_contract_compatibility,
     TestEnv::new().enable_missing_override_decorator_error(),
     r#"
@@ -159,6 +206,306 @@ def f(c: C):
     assert_type(c.foo, int)
     c.foo = 42  # E: Attribute `foo` of class `C` is a read-only property and cannot be set
     reveal_type(C.foo)  # E: revealed type: (self: C) -> int
+    "#,
+);
+
+// https://github.com/pyrefly-org/pyrefly/issues/5519
+testcase!(
+    bug = "Property subclasses lose the getter type",
+    test_property_subclass_read_only,
+    r#"
+from typing import Any, assert_type
+
+class Property(property):
+    def describe(self) -> str:
+        return "custom property"
+
+class C:
+    @Property
+    def value(self) -> int:
+        return 1
+
+class Child(C): ...
+
+assert_type(C().value, Any)
+assert_type(Child().value, Any)
+assert_type(C.value.describe(), str)
+assert_type(Child.value.describe(), str)
+C().value = 2
+    "#,
+);
+
+testcase!(
+    bug = "Property subclasses lose the getter type",
+    test_property_subclass_inheritance,
+    r#"
+from typing import Any, assert_type
+
+class Property(property): ...
+class Mixin: ...
+class DerivedProperty(Mixin, Property): ...
+class FurtherProperty(DerivedProperty): ...
+Alias = FurtherProperty
+
+class C[T]:
+    @Alias
+    def value(self) -> T:
+        raise NotImplementedError
+
+class Child(C[int]): ...
+
+assert_type(C[int]().value, Any)
+assert_type(C[str]().value, Any)
+assert_type(Child().value, Any)
+    "#,
+);
+
+testcase!(
+    bug = "Property subclasses lose accessor types",
+    test_property_subclass_setter_and_deleter,
+    r#"
+from typing import Any, assert_type
+
+class Property(property):
+    def describe(self) -> str:
+        return "custom property"
+
+class C:
+    @Property
+    def value(self) -> int:
+        return 1
+
+    @value.setter
+    def value(self, new_value: int) -> None:
+        pass
+
+    @value.deleter
+    def value(self) -> None:
+        pass
+
+c = C()
+assert_type(c.value, Any)
+C.value.describe()  # E: Object of class `property` has no attribute `describe`
+c.value = 2
+c.value = "wrong"
+del c.value
+    "#,
+);
+
+testcase!(
+    bug = "Property subclass constructors lose accessor types",
+    test_property_subclass_constructor,
+    r#"
+from typing import Any, assert_type
+
+class Property(property):
+    def describe(self) -> str:
+        return "custom property"
+class DerivedProperty(Property): ...
+
+class C:
+    def get_value(self) -> int:
+        return 1
+
+    def set_value(self, value: int) -> None:
+        pass
+
+    def del_value(self) -> None:
+        pass
+
+    read_only = Property(get_value)
+    writable = DerivedProperty(fget=get_value, fset=set_value, fdel=del_value)
+
+c = C()
+assert_type(c.read_only, Any)
+assert_type(c.writable, Any)
+assert_type(C.read_only.describe(), str)
+assert_type(C.writable.describe(), str)
+c.read_only = 2
+c.writable = 2
+c.writable = "wrong"
+del c.writable
+    "#,
+);
+
+testcase!(
+    bug = "Imported property subclasses lose the getter type",
+    test_property_subclass_imported,
+    {
+        let mut env = TestEnv::new();
+        env.add(
+            "lib",
+            "class Property(property): ...\nclass DerivedProperty(Property): ...",
+        );
+        env
+    },
+    r#"
+from typing import Any, assert_type
+from lib import DerivedProperty
+
+class C:
+    @DerivedProperty
+    def value(self) -> str:
+        return "value"
+
+assert_type(C().value, Any)
+    "#,
+);
+
+testcase!(
+    test_property_subclass_unrelated_descriptor,
+    r#"
+from typing import Callable, assert_type
+
+class Property:
+    def __init__(self, getter: Callable[..., int]) -> None:
+        pass
+
+    def __get__(self, instance: object, owner: type | None = None) -> str:
+        return "value"
+
+class C:
+    @Property
+    def value(self) -> int:
+        return 1
+
+assert_type(C().value, str)
+    "#,
+);
+
+testcase!(
+    test_property_subclass_custom_descriptor,
+    r#"
+from typing import Self, assert_type, overload
+
+class Property(property):
+    @overload
+    def __get__(self, instance: None, owner: type | None = None) -> Self: ...
+    @overload
+    def __get__(self, instance: object, owner: type | None = None) -> str: ...
+    def __get__(self, instance: object | None, owner: type | None = None) -> Self | str:
+        if instance is None:
+            return self
+        return "custom value"
+
+class DerivedProperty(Property): ...
+
+class C:
+    @DerivedProperty
+    def value(self) -> int:
+        return 1
+
+assert_type(C().value, str)
+assert_type(C.value, DerivedProperty)
+    "#,
+);
+
+testcase!(
+    test_property_subclass_custom_constructor,
+    r#"
+from typing import Any, Callable, assert_type
+
+class Property(property):
+    def __init__(self, fget: Callable[..., object], *, required: int) -> None:
+        super().__init__(fget)
+
+class C:
+    @Property  # E: Missing argument `required`
+    def value(self) -> int:
+        return 1
+
+assert_type(C().value, Any)
+
+class Constructed:
+    def get_value(self) -> int:
+        return 1
+    value = Property(get_value, required=1)
+
+assert_type(Constructed().value, Any)
+    "#,
+);
+
+testcase!(
+    test_property_subclass_custom_metaclass,
+    r#"
+from typing import Callable, assert_type
+
+class Meta(type):
+    def __call__(cls, fget: Callable[..., object]) -> str:
+        return "custom"
+
+class Property(property, metaclass=Meta): ...
+
+class C:
+    @Property
+    def value(self) -> int:
+        return 1
+
+assert_type(C().value, str)
+    "#,
+);
+
+testcase!(
+    test_property_subclass_synthesized_constructor,
+    r#"
+from dataclasses import dataclass
+from typing import Any, Callable, assert_type
+
+@dataclass
+class Property(property):
+    fget_arg: Callable[..., object]
+    required: int
+
+class C:
+    @Property  # E: Missing argument `required`
+    def value(self) -> int:
+        return 1
+
+assert_type(C().value, Any)
+    "#,
+);
+
+testcase!(
+    test_property_subclass_extra_decorator,
+    r#"
+from typing import Any, Callable, Self, assert_type
+
+class Property(property):
+    def expression(self, func: Callable[..., str]) -> Self:
+        return self
+    def describe(self) -> str:
+        return "custom property"
+
+class C:
+    @Property
+    def value(self) -> int:
+        return 1
+    @value.expression
+    def value(self) -> str:
+        return "value"
+
+assert_type(C.value.describe(), str)
+assert_type(C().value, Any)
+    "#,
+);
+
+testcase!(
+    bug = "Specialized property subclasses lose the getter type",
+    test_property_subclass_specialized,
+    r#"
+from typing import Any, assert_type
+
+class Property[T](property):
+    def result_type(self) -> type[T]:
+        raise NotImplementedError
+
+class C:
+    @Property[int]
+    def value(self) -> int:
+        return 1
+
+assert_type(C().value, Any)
+assert_type(C.value.result_type(), type[int])
     "#,
 );
 
