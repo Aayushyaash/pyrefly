@@ -197,6 +197,7 @@ impl Preset {
                     infer_return_types: Some(InferReturnTypes::Never),
                     infer_with_first_use: Some(false),
                     enabled_ignores: Some(Tool::all()),
+                    class_decorator_behavior: Some(ClassDecoratorBehavior::Ignore),
                     ..Default::default()
                 }
             }
@@ -215,6 +216,7 @@ impl Preset {
                     check_unannotated_defs: Some(false),
                     infer_return_types: Some(InferReturnTypes::Never),
                     legacy_overload_expansion: Some(true),
+                    class_decorator_behavior: Some(ClassDecoratorBehavior::Ignore),
                     type_ignore_unknown_tag_behavior: Some(TypeIgnoreUnknownTagBehavior::Suppress),
                     ..Default::default()
                 }
@@ -358,7 +360,8 @@ pub struct ConfigBase {
     ///   are only eligible when `check-unannotated-defs` is true.
     pub infer_return_types: Option<InferReturnTypes>,
 
-    /// How class decorators affect the class type. Defaults to `typed-only`.
+    /// How class decorators affect the class type. Defaults to `ignore` under the `basic` and
+    /// `legacy` presets, and to `typed-only` otherwise.
     pub class_decorator_behavior: Option<ClassDecoratorBehavior>,
 
     /// Whether to disable type errors in language server. By default errors will be shown in IDEs.
