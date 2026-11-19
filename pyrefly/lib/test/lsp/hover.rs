@@ -450,6 +450,32 @@ Foo().bar(1)
     );
 }
 
+// BUG: When the receiver selects one overload, hover shows every overload instead of the
+// selected one.
+#[test]
+fn hover_on_receiver_selected_overload_shows_every_overload() {
+    let code = r#"
+from typing import overload
+
+class C[T]:
+    @overload
+    def f(self: C[int], x: int) -> int: ...
+    @overload
+    def f(self: C[str], x: str) -> str: ...
+    def f(self, x: int | str) -> int | str:
+        return x
+
+def test(ci: C[int]):
+    ci.f(1)
+#      ^
+"#;
+    let report = get_batched_lsp_operations_report(&[("main", code)], get_test_report);
+    assert!(
+        report.contains("@overload") && report.contains("self: C[str]"),
+        "Expected hover to show every overload, got: {report}"
+    );
+}
+
 #[test]
 fn hover_on_union_method_call_shows_method_signature() {
     let code = r#"

@@ -567,6 +567,52 @@ Signature Help Result: active=1
     );
 }
 
+// BUG: When the receiver selects one overload, signature help shows the whole overload as one
+// unparsed signature instead of the selected overload's parameters.
+#[test]
+fn receiver_selected_overload_test() {
+    let code = r#"
+from typing import overload
+
+class C[T]:
+    @overload
+    def f(self: C[int], x: int) -> int: ...
+    @overload
+    def f(self: C[str], x: str) -> str: ...
+    def f(self, x: int | str) -> int | str:
+        return x
+
+def test(ci: C[int]):
+    ci.f()
+#        ^
+    ci.f(1)
+#         ^
+"#;
+    let report = get_batched_lsp_operations_report_allow_error(&[("main", code)], get_test_report);
+    assert_eq!(
+        r#"
+# main.py
+13 |     ci.f()
+              ^
+Signature Help Result: active=0
+- Overload[
+  def f(self: C[int], x: int) -> int: ...
+  def f(self: C[str], x: str) -> str: ...
+]
+
+15 |     ci.f(1)
+               ^
+Signature Help Result: active=0
+- Overload[
+  def f(self: C[int], x: int) -> int: ...
+  def f(self: C[str], x: str) -> str: ...
+]
+"#
+        .trim(),
+        report.trim(),
+    );
+}
+
 #[test]
 fn function_with_default_argument_test() {
     let code = r#"
