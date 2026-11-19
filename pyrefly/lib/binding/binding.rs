@@ -1339,6 +1339,8 @@ pub enum BindingExpect {
     },
     /// Expression used in a boolean context (`bool()`, `if`, or `while`)
     Bool(Expr),
+    /// Expression tested by an assertion.
+    Assert(Expr),
     /// A match statement that may be non-exhaustive at runtime.
     /// The solver checks closed subject types by default and all representable subjects when configured.
     MatchExhaustiveness {
@@ -1452,6 +1454,9 @@ impl DisplayWith<Bindings> for BindingExpect {
             }
             Self::TypeCheckBaseClassExpr(x) => {
                 write!(f, "TypeCheckBaseClassExpr({})", m.display(x))
+            }
+            Self::Assert(x) => {
+                write!(f, "Assert({})", m.display(x))
             }
             Self::Bool(x) => {
                 write!(f, "Bool({})", m.display(x))

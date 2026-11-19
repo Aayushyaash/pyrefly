@@ -1033,8 +1033,8 @@ from typing import assert_type
 list.__add__ # This is a method on `list`
 
 # No error for accessing properties on `GenericAlias`
-assert(list[int].__args__, tuple)
-assert(list[int].__parameters__, tuple)
+assert(list[int].__args__, tuple)  # E: Assertion is always true because a nonempty tuple is truthy
+assert(list[int].__parameters__, tuple)  # E: Assertion is always true because a nonempty tuple is truthy
 
 # No error for accessing methods on `list`
 list[int].__add__

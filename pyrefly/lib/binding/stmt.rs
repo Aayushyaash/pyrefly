@@ -306,7 +306,8 @@ impl<'a> BindingsBuilder<'a> {
         let test_link = self.bind_bool_condition(&mut test);
         let narrow_ops = NarrowOps::from_expr(self, Some(&test));
         let static_test = self.sys_info.evaluate_bool(&test);
-        self.insert_bool_condition(test_link, test);
+        let idx = self.insert_binding(KeyExpect::Bool(test.range()), BindingExpect::Assert(test));
+        self.insert_binding_current(test_link, Binding::UsageLink(LinkedKey::Expect(idx)));
         if let Some(mut msg_expr) = msg {
             let mut base = self.scopes.clone_current_flow();
             // Negate the narrowing of the test expression when typechecking

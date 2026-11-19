@@ -1138,7 +1138,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             Expr::If(x) => {
                 let condition_type = self.expr_infer(&x.test, errors);
                 self.check_dunder_bool_is_callable(&condition_type, x.range(), errors);
-                self.check_redundant_condition(&x.test, &condition_type, x.range(), errors);
+                self.check_redundant_condition(&x.test, &condition_type, x.range(), false, errors);
                 self.check_implicit_bool(&condition_type, x.test.range(), errors);
                 match self
                     .bindings()
@@ -2989,7 +2989,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         for comp in comps {
             for if_clause in comp.ifs.iter() {
                 let ty = self.expr_infer(if_clause, errors);
-                self.check_redundant_condition(if_clause, &ty, if_clause.range(), errors);
+                self.check_redundant_condition(if_clause, &ty, if_clause.range(), false, errors);
                 self.check_implicit_bool(&ty, if_clause.range(), errors);
             }
         }
@@ -5449,8 +5449,20 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         condition: &Expr,
         condition_type: &Type,
         range: TextRange,
+        is_assert: bool,
         errors: &ErrorCollector,
     ) {
+        if is_assert
+            && let Type::Tuple(Tuple::Concrete(elements)) = condition_type
+            && !elements.is_empty()
+        {
+            self.error(
+                errors,
+                range,
+                ErrorKind::RedundantCondition,
+                "Assertion is always true because a nonempty tuple is truthy".to_owned(),
+            );
+        }
         if let Some(reason) = self.get_condition_redundant_reason(condition, condition_type) {
             self.error(
                 errors,

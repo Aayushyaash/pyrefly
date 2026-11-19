@@ -2733,10 +2733,10 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         )
     }
 
-    fn check_bool_expr(&self, x: &Expr, errors: &ErrorCollector) -> Type {
+    fn check_bool_expr(&self, x: &Expr, is_assert: bool, errors: &ErrorCollector) -> Type {
         let ty = self.expr_infer(x, errors);
         self.check_dunder_bool_is_callable(&ty, x.range(), errors);
-        self.check_redundant_condition(x, &ty, x.range(), errors);
+        self.check_redundant_condition(x, &ty, x.range(), is_assert, errors);
         self.check_implicit_bool(&ty, x.range(), errors);
         ty
     }
@@ -2777,7 +2777,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         } else {
             self.check_dunder_bool_is_callable_and_get_type(ty, range, errors)
         };
-        self.check_redundant_condition(x, ty, range, errors);
+        self.check_redundant_condition(x, ty, range, false, errors);
         self.check_implicit_bool(ty, range, errors);
 
         if contains_class_object {
@@ -3068,8 +3068,11 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     self.preserve_comment_base_identity(&base, ty, errors);
                 }
             }
+            BindingExpect::Assert(x) => {
+                self.check_bool_expr(x, true, errors);
+            }
             BindingExpect::Bool(x) => {
-                self.check_bool_expr(x, errors);
+                self.check_bool_expr(x, false, errors);
             }
             BindingExpect::UnpackedLength(b, range, expect) => {
                 let iterable_ty = self.get_idx(*b);
@@ -3312,7 +3315,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 for branch in branches {
                     if let Some(test) = branch.test {
                         let ty = match self.bindings().get(test) {
-                            Binding::BranchTest(x) => self.check_bool_expr(&x.test, errors),
+                            Binding::BranchTest(x) => self.check_bool_expr(&x.test, false, errors),
                             binding => unreachable!("a branch test is bound as {binding:?}"),
                         };
                         chain_reached.get_or_insert(!ty.is_never());

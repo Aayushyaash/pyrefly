@@ -6472,16 +6472,15 @@ def f(x: Mapping[Any, Any]):
 );
 
 testcase!(
-    bug = "Nonempty tuple assertions are not reported",
     test_unnecessary_assert_tuple,
     r#"
 from typing import Any
 
 def check(condition: bool, fixed: tuple[int, str], variable: tuple[int, ...],
           maybe_empty: tuple[()] | tuple[int], unknown: Any):
-    assert (condition, "message")
-    assert fixed
-    assert (condition,)
+    assert (condition, "message")  # E: Assertion is always true because a nonempty tuple is truthy
+    assert fixed  # E: Assertion is always true because a nonempty tuple is truthy
+    assert (condition,)  # E: Assertion is always true because a nonempty tuple is truthy
     assert condition, "message"
     assert variable
     assert maybe_empty
