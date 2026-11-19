@@ -138,3 +138,40 @@ def f(x: Hashable):
         pass
 "#,
 );
+
+testcase!(
+    bug = "Impossible builtin membership tests are not reported",
+    test_unnecessary_membership,
+    r#"
+from typing import Any, assert_type
+
+class Equal:
+    def __eq__(self, other: object) -> bool:
+        return True
+class Container:
+    def __contains__(self, value: object) -> bool:
+        return True
+
+def check(value: int, texts: list[str], names: set[str], keys: dict[str, int],
+          fixed: tuple[str, bytes], variable: tuple[str, ...], empty: tuple[()],
+          containers: list[str] | set[bytes], mixed: list[str] | list[int],
+          unknown: Any, gradual: list[Any], numbers: list[int], equal: Equal,
+          custom: Container):
+    result = value in texts
+    assert_type(result, bool)
+    if value not in names: pass
+    if value in keys: pass
+    if value in fixed: pass
+    if value in variable: pass
+    if value in empty: pass
+    if value in containers: pass
+    if value in mixed: pass
+    if unknown in texts: pass
+    if value in gradual: pass
+    if True in numbers: pass
+    if 1.0 in numbers: pass
+    if equal in texts: pass
+    if value in custom: pass
+    if "" in "abc": pass
+"#,
+);
