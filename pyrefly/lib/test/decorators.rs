@@ -1186,6 +1186,90 @@ Factory(x="wrong")  # E: Argument `Literal['wrong']` is not assignable to parame
 );
 
 testcase!(
+    test_class_decorator_behavior_ignore,
+    TestEnv::new().with_class_decorator_behavior(ClassDecoratorBehavior::Ignore),
+    r#"
+from dataclasses import dataclass
+from typing import Any, assert_type
+
+def typed(cls: type) -> int: ...
+def untyped(cls): return cls
+def erased(cls: type) -> type[Any]: ...
+
+@typed
+class Typed: ...
+
+@untyped
+class Untyped: ...
+
+@erased
+class Erased: ...
+
+assert_type(Typed, type[Typed])
+assert_type(Untyped, type[Untyped])
+assert_type(Erased, type[Any])
+assert_type(Typed(), Typed)
+
+# Special decorators still provide their synthesized class behavior.
+@dataclass
+class Data:
+    value: int
+
+assert_type(Data(1).value, int)
+"#,
+);
+
+// `typed-only` is the default.
+testcase!(
+    bug = "Class decorators are not applied",
+    test_class_decorator_behavior_typed_only,
+    r#"
+from typing import Any, Callable, assert_type
+
+def typed(cls: type) -> int: ...
+def untyped(cls): return cls
+def explicit_any(cls: type) -> Any: ...
+def inferred_type_any(cls: type[Any]): return cls
+def factory() -> Callable: return untyped
+
+def bare_generic(cls: type) -> type[list]: ...
+
+class UntypedDecorator:
+    def __call__(self, cls): return cls
+
+@typed
+class Typed: ...
+
+@untyped
+class Untyped: ...
+
+@explicit_any
+class ExplicitAny: ...
+
+@inferred_type_any
+class InferredTypeAny: ...
+
+@factory()
+class Factory: ...
+
+@UntypedDecorator()
+class Instance: ...
+
+@bare_generic
+class BareGeneric:
+    x: int = 1
+
+assert_type(Typed, type[Typed])
+assert_type(Untyped, type[Untyped])
+assert_type(ExplicitAny, type[ExplicitAny])
+assert_type(InferredTypeAny, type[InferredTypeAny])
+assert_type(Factory, type[Factory])
+assert_type(Instance, type[Instance])
+assert_type(BareGeneric.x, int)
+"#,
+);
+
+testcase!(
     test_class_decorator_dataclass_preserves_class,
     env_typed_only(),
     r#"
