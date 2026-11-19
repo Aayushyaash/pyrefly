@@ -304,6 +304,7 @@ pub struct TestEnv {
     no_any_return_explicit_error: bool,
     no_any_return_implicit_error: bool,
     implicit_any_lambda_error: bool,
+    unnecessary_type_var_error: bool,
     invalid_abstract_method_error: bool,
     abstract_method_with_implementation_error: bool,
     property_type_mismatch_error: bool,
@@ -389,6 +390,7 @@ impl TestEnv {
             no_any_return_explicit_error: false,
             no_any_return_implicit_error: false,
             implicit_any_lambda_error: false,
+            unnecessary_type_var_error: false,
             invalid_abstract_method_error: false,
             abstract_method_with_implementation_error: false,
             property_type_mismatch_error: false,
@@ -749,6 +751,11 @@ impl TestEnv {
         self
     }
 
+    pub fn enable_unnecessary_type_var_error(mut self) -> Self {
+        self.unnecessary_type_var_error = true;
+        self
+    }
+
     pub fn enable_invalid_abstract_method_error(mut self) -> Self {
         self.invalid_abstract_method_error = true;
         self
@@ -1077,6 +1084,9 @@ impl TestEnv {
         }
         if self.implicit_any_lambda_error {
             errors.set_error_severity(ErrorKind::ImplicitAnyLambda, Severity::Error);
+        }
+        if self.unnecessary_type_var_error {
+            errors.set_error_severity(ErrorKind::UnnecessaryTypeVar, Severity::Error);
         }
         if self.invalid_abstract_method_error {
             errors.set_error_severity(ErrorKind::InvalidAbstractMethod, Severity::Error);

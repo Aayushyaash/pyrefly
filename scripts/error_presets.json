@@ -155,6 +155,7 @@
     "unknown-variable-type": ["all"],
     "unnecessary-comparison": ["legacy", "default", "strict", "all"],
     "unnecessary-type-conversion": ["legacy", "default", "strict", "all"],
+    "unnecessary-type-var": ["all"],
     "unreachable": ["legacy", "default", "strict", "all"],
     "unreachable-except-clause": ["legacy", "default", "strict", "all"],
     "unreachable-match-case": ["legacy", "default", "strict", "all"],

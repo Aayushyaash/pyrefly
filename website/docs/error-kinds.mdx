@@ -2464,6 +2464,21 @@ def f(x: str) -> None:
     y = str(x)  # unnecessary-type-conversion: `x` is already of type `str`
 ```
 
+## unnecessary-type-var
+
+Default severity: `ignore`
+
+A function-scoped type variable that appears only once in the function's signature relates no
+types, so its bound (or `object`) can be used instead. Nested uses such as `list[T]` are not
+reported, because `list[T]` accepts lists that `list[object]` does not.
+
+```python
+def log[T](value: T) -> None:  # unnecessary-type-var: use `object` instead
+    print(value)
+```
+
+This is a sub-kind of [invalid-type-var](#invalid-type-var): suppressing `invalid-type-var` also suppresses this error.
+
 ## unreachable
 
 Default severity: `hint`

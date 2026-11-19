@@ -5,31 +5,33 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+use crate::test::util::TestEnv;
 use crate::test::util::shape_extensions_env;
 use crate::testcase;
 
 // https://github.com/pyrefly-org/pyrefly/issues/3656
 testcase!(
-    bug = "A type variable that appears only once in a signature relates no types",
     test_type_var_used_once,
+    TestEnv::new().enable_unnecessary_type_var_error(),
     r#"
 from typing import TypeVar
 
 T = TypeVar("T")
 
-def pep695[S](x: S) -> None: ...
-def legacy(x: T) -> None: ...
-def bounded[S: int](x: S) -> None: ...
-def union_member[S](x: S | None) -> None: ...
-def return_only[S]() -> S: ...
+def pep695[S](x: S) -> None: ...  # E: Type variable `S` appears only once in the signature of `pep695`
+def legacy(x: T) -> None: ...  # E: Type variable `T` appears only once in the signature of `legacy`
+def bounded[S: int](x: S) -> None: ...  # E: Type variable `S` appears only once in the signature of `bounded`
+def union_member[S](x: S | None) -> None: ...  # E: Type variable `S` appears only once in the signature of `union_member`
+def return_only[S]() -> S: ...  # E: Type variable `S` appears only once in the signature of `return_only`
 
 class A:
-    def method(self, x: T) -> None: ...
+    def method(self, x: T) -> None: ...  # E: Type variable `T` appears only once in the signature of `method`
 "#,
 );
 
 testcase!(
     test_type_var_used_once_exemptions,
+    TestEnv::new().enable_unnecessary_type_var_error(),
     r#"
 from typing import Callable, Generic, TypeVar
 
@@ -54,7 +56,7 @@ class Box(Generic[K]):
 
 testcase!(
     test_int_var_used_once,
-    shape_extensions_env(),
+    shape_extensions_env().enable_unnecessary_type_var_error(),
     r#"
 from shape_extensions import IntTuple, IntVar
 

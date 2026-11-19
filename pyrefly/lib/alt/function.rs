@@ -6,6 +6,7 @@
  */
 
 use std::collections::VecDeque;
+use std::iter::once;
 use std::iter::successors;
 use std::sync::Arc;
 
@@ -30,6 +31,7 @@ use pyrefly_types::quantified::AnchorIndex;
 use pyrefly_types::quantified::Quantified;
 use pyrefly_types::quantified::QuantifiedAnchor;
 use pyrefly_types::quantified::QuantifiedIdentity;
+use pyrefly_types::quantified::QuantifiedKind;
 use pyrefly_types::quantified::QuantifiedOrigin;
 use pyrefly_types::type_level_dsl::ParsedTypeShapeDslFunction;
 use pyrefly_types::type_var::PreInferenceVariance;
@@ -1072,6 +1074,8 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 );
             }
         }
+
+        self.check_type_var_use(def, &ret, &stmt.name, errors);
 
         let callable = if let Some(q) = &def.paramspec {
             Callable::concatenate(
@@ -2337,6 +2341,63 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             self.restore_decoratee_generics(decorated_value, application.decoratee_tparams);
         let widened = self.widen_singledispatch_never(decorated);
         self.singledispatch_dispatcher_as_callback(widened, &application.original_decoratee)
+    }
+
+    /// Report misused type variables that a function declares.
+    ///
+    /// A type variable that occurs exactly once, as a whole parameter or return type or as a
+    /// member of a union there, relates no types and can be replaced by its bound. A nested
+    /// occurrence such as `list[T]` is exempt because invariance can make it differ from
+    /// `list[object]`. Constrained type variables are exempt, matching pyright.
+    ///
+    /// Type variables with defaults are exempt, matching pyright.
+    fn check_type_var_use(
+        &self,
+        def: &UndecoratedFunction,
+        ret: &Type,
+        name: &Identifier,
+        errors: &ErrorCollector,
+    ) {
+        let signature_types = || def.params.iter().map(Param::as_type).chain(once(ret));
+        for q in def.tparams.iter() {
+            if q.default.is_some()
+                || !matches!(
+                    q.identity().origin,
+                    QuantifiedOrigin::Pep695 | QuantifiedOrigin::ScopedLegacy
+                )
+            {
+                continue;
+            }
+            let occurrences = |ty: &Type| {
+                let mut n = 0;
+                ty.for_each_quantified(&mut |x| {
+                    if x == q {
+                        n += 1;
+                    }
+                });
+                n
+            };
+
+            let is_q = |ty: &Type| matches!(ty, Type::Quantified(x) if **x == *q);
+            if q.kind() == QuantifiedKind::TypeVar
+                && !matches!(q.restriction, Restriction::Constraints(_))
+                && signature_types().map(&occurrences).sum::<usize>() == 1
+                && signature_types().any(|ty| match ty {
+                    Type::Union(union) => union.members.iter().any(is_q),
+                    _ => is_q(ty),
+                })
+            {
+                self.error(
+                    errors,
+                    name.range(),
+                    ErrorKind::UnnecessaryTypeVar,
+                    format!(
+                        "Type variable `{}` appears only once in the signature of `{name}`",
+                        q.name
+                    ),
+                );
+            }
+        }
     }
 
     /// For a type guard function, validate whether it has at least one

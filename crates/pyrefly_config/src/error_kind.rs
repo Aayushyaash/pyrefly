@@ -518,6 +518,9 @@ pub enum ErrorKind {
     UnnecessaryComparison,
     /// Warning when calling a builtin type constructor (str, int, float, bool, bytes) on a value that is already of that type.
     UnnecessaryTypeConversion,
+    /// A function-scoped type variable that appears only once in the function's signature, so it
+    /// relates no types and can be replaced by its bound.
+    UnnecessaryTypeVar,
     /// A return or yield that can never be reached.
     /// This occurs when a return/yield follows a statement that always exits,
     /// such as return, raise, break, or continue.
@@ -629,6 +632,7 @@ impl ErrorKind {
                 Some(ErrorKind::PytorchEfficiencyLints)
             }
             ErrorKind::UnannotatedPublicReturn => Some(ErrorKind::UnannotatedReturn),
+            ErrorKind::UnnecessaryTypeVar => Some(ErrorKind::InvalidTypeVar),
             _ => None,
         }
     }
@@ -733,6 +737,7 @@ impl ErrorKind {
             ErrorKind::PartiallyUnknownType => Severity::Ignore,
             ErrorKind::UnnecessaryComparison => Severity::Warn,
             ErrorKind::UnnecessaryTypeConversion => Severity::Warn,
+            ErrorKind::UnnecessaryTypeVar => Severity::Ignore,
             ErrorKind::Unreachable => Severity::Hint,
             ErrorKind::UnreachableExceptClause => Severity::Warn,
             ErrorKind::UnreachableMatchCase => Severity::Warn,
