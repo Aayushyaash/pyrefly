@@ -79,6 +79,7 @@ use crate::binding::binding::KeyDecorator;
 use crate::binding::binding::KeyLegacyTypeParam;
 use crate::binding::binding::KeyUndecoratedFunction;
 use crate::binding::classmethod::MethodReceiverKind;
+use crate::config::base::ClassDecoratorBehavior;
 use crate::config::error_kind::ErrorKind;
 use crate::error::collector::ErrorCollector;
 use crate::error::context::TypeCheckContext;
@@ -306,6 +307,18 @@ impl DecoratorParamHints {
             Some(ty)
         }
     }
+}
+
+/// How a class decorator's result affects the type bound to the class's name.
+enum ClassDecoratorResult {
+    /// The result replaces the class.
+    Applied(Type),
+    /// The decorator explicitly returns `type[Any]`, which erases the class interface.
+    Erased,
+    /// The result is unknown, so the class is kept and the decorator is reported as untyped.
+    Untyped,
+    /// The class is kept without a report.
+    Kept,
 }
 
 impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
@@ -2450,7 +2463,8 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         })
     }
 
-    /// The type bound to a class's name after its decorators are checked, in application order.
+    /// The type bound to a class's name after its decorators are applied, in application order,
+    /// according to `class-decorator-behavior`.
     pub(crate) fn decorate_class(
         &self,
         cls: &Class,
@@ -2458,13 +2472,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         errors: &ErrorCollector,
     ) -> Type {
         let mut ty = self.heap.mk_class_def(cls.dupe());
-        // Class decorators are not applied, so whether a decorator returns an unknown type is
-        // read from its signatures.
-        let returns_unknown = |callable: &Type| {
-            let mut signatures = callable.toplevel_callable_signatures().peekable();
-            signatures.peek().is_some()
-                && signatures.all(|(sig, _)| sig.ret.has_top_level_implicit_any())
-        };
+        let behavior = self.solver().config.class_decorator_behavior;
         // Like for functions, only the first decorator (in application order) that makes the
         // result unknown is reported, unless the decorator itself is `Any`.
         let mut obscured = false;
@@ -2489,37 +2497,117 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             {
                 continue;
             }
+            let range = self.bindings().idx_to_key(*decorator_key).range();
+            let callable = decorator.clone();
             let decorator_is_any = matches!(
                 decorator,
                 Type::Any(AnyStyle::Implicit | AnyStyle::Explicit)
             );
-            if decorator_is_any
-                || (!obscured
-                    && match decorator {
-                        Type::ClassType(instance) => self
-                            .instance_as_dunder_call(instance)
-                            .is_some_and(|call| returns_unknown(&call)),
-                        _ => returns_unknown(decorator),
-                    })
-            {
-                obscured = true;
-                self.error(
-                    errors,
-                    self.bindings().idx_to_key(*decorator_key).range(),
-                    ErrorKind::UntypedClassDecorator,
-                    format!(
-                        "Untyped class decorator may modify `{}` in unexpected ways",
-                        cls.name(self)
-                    ),
-                );
-            }
-            // An explicit `type[Any]` return erases the class interface. Later decorators
-            // receive the erased class, so the result stays erased.
-            if self.class_decorator_erases_class(decorator) {
-                ty = self.heap.mk_type_of(self.heap.mk_any_explicit());
+            let result = match behavior {
+                ClassDecoratorBehavior::Ignore => {
+                    // Decorators are not called in this mode, so whether a decorator returns an
+                    // unknown type is read from its signatures.
+                    let returns_unknown = |callable: &Type| {
+                        let mut signatures = callable.toplevel_callable_signatures().peekable();
+                        signatures.peek().is_some()
+                            && signatures.all(|(sig, _)| sig.ret.has_top_level_implicit_any())
+                    };
+                    if self.class_decorator_erases_class(&callable) {
+                        ClassDecoratorResult::Erased
+                    } else if decorator_is_any
+                        || match decorator {
+                            Type::ClassType(instance) => self
+                                .instance_as_dunder_call(instance)
+                                .is_some_and(|call| returns_unknown(&call)),
+                            _ => returns_unknown(decorator),
+                        }
+                    {
+                        ClassDecoratorResult::Untyped
+                    } else {
+                        ClassDecoratorResult::Kept
+                    }
+                }
+                ClassDecoratorBehavior::TypedOnly => {
+                    let decorated =
+                        self.apply_class_decorator(callable.clone(), ty.clone(), range, errors);
+                    let members = decorated.clone().into_unions();
+                    if decorated == ty {
+                        ClassDecoratorResult::Applied(decorated)
+                    } else if decorator_is_any
+                        || decorated.contains_implicit_any()
+                        || (members.iter().any(|member| {
+                            matches!(member, Type::Type(inner) if matches!(&**inner, Type::Any(AnyStyle::Explicit)))
+                        }) && !self.class_decorator_erases_class(&callable))
+                    {
+                        // An unknown result, or a `type[Any]` that the decorator doesn't
+                        // explicitly declare.
+                        ClassDecoratorResult::Untyped
+                    } else if members.iter().any(|member| match member {
+                        Type::Any(_) => true,
+                        Type::Type(inner) => inner.is_error(),
+                        _ => false,
+                    }) {
+                        // An explicit `Any` return, or the result of a failed call.
+                        ClassDecoratorResult::Kept
+                    } else {
+                        ClassDecoratorResult::Applied(decorated)
+                    }
+                }
+            };
+            match result {
+                ClassDecoratorResult::Applied(decorated) => ty = decorated,
+                ClassDecoratorResult::Erased => {
+                    ty = self.heap.mk_type_of(self.heap.mk_any_explicit());
+                }
+                ClassDecoratorResult::Untyped => {
+                    if !obscured || decorator_is_any {
+                        self.error(
+                            errors,
+                            range,
+                            ErrorKind::UntypedClassDecorator,
+                            format!(
+                                "Untyped class decorator may modify `{}` in unexpected ways",
+                                cls.name(self)
+                            ),
+                        );
+                    }
+                    obscured = true;
+                }
+                ClassDecoratorResult::Kept => {}
             }
         }
         ty
+    }
+
+    /// Calls a class decorator with the class it decorates. A decorator that returns the class
+    /// it is given keeps the class definition itself.
+    fn apply_class_decorator(
+        &self,
+        decorator: Type,
+        decoratee: Type,
+        range: TextRange,
+        errors: &ErrorCollector,
+    ) -> Type {
+        let call_target =
+            self.as_call_target_or_error(decorator, CallStyle::FreeForm, range, errors, None);
+        // Keep the class's type parameters concrete during inference, just as for generic
+        // function decorators. Promoting a class definition here would replace them with defaults.
+        let (decoratee_tparams, decoratee_arg) = match &decoratee {
+            Type::ClassDef(cls) => (
+                self.get_class_tparams(cls).cloned(),
+                self.heap.mk_type_of(self.instantiate(cls)),
+            ),
+            _ => (None, decoratee.clone()),
+        };
+        let arg = CallArg::ty(&decoratee_arg, range);
+        let decorated = self
+            .call_infer(call_target, &[arg], &[], range, errors, None, None, None)
+            .ty;
+        if decorated == decoratee_arg {
+            decoratee
+        } else {
+            self.restore_decoratee_generics(decorated, decoratee_tparams)
+        }
     }
 
     /// For a type guard function, validate whether it has at least one

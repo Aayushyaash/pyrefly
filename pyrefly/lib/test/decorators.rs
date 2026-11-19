@@ -1158,7 +1158,7 @@ g(f)
 );
 
 testcase!(
-    bug = "Class decorators are not applied, and untyped ones are not always reported",
+    bug = "A class used as a class decorator produces an instance and is not reported",
     test_class_decorator_untyped_constructor_result,
     env_typed_only().enable_untyped_class_decorator_error(),
     r#"
@@ -1172,8 +1172,8 @@ class Passthrough:
 class D:
     x: int = 1
 
-assert_type(D, type[D])
-assert_type(D.x, int)
+assert_type(D, Passthrough)
+D.x  # E: Object of class `Passthrough` has no attribute `x`
 
 def decorator_factory() -> type[Passthrough]:
     return Passthrough
@@ -1182,8 +1182,8 @@ def decorator_factory() -> type[Passthrough]:
 class E:
     x: int = 1
 
-assert_type(E, type[E])
-assert_type(E.x, int)
+assert_type(E, Passthrough)
+E.x  # E: Object of class `Passthrough` has no attribute `x`
 
 class Wrapper[T]:
     def __init__(self, wrapped: type[T]) -> None:
@@ -1193,12 +1193,11 @@ class Wrapper[T]:
 class Wrapped:
     x: int = 1
 
-assert_type(Wrapped, type[Wrapped])
+assert_type(Wrapped.wrapped().x, int)
 "#,
 );
 
 testcase!(
-    bug = "Erases the class although the selected overload returns `Any`",
     test_class_decorator_selected_overload_returns_any,
     env_typed_only(),
     r#"
@@ -1228,7 +1227,7 @@ class D:
     x: int = 1
 
 assert_type(D, type[D])
-assert_type(D.x, Any)
+assert_type(D.x, int)
 "#,
 );
 
@@ -1295,7 +1294,6 @@ assert_type(Data(1).value, int)
 
 // `typed-only` is the default.
 testcase!(
-    bug = "Class decorators are not applied",
     test_class_decorator_behavior_typed_only,
     r#"
 from typing import Any, Callable, assert_type
@@ -1333,7 +1331,7 @@ class Instance: ...
 class BareGeneric:
     x: int = 1
 
-assert_type(Typed, type[Typed])
+assert_type(Typed, int)
 assert_type(Untyped, type[Untyped])
 assert_type(ExplicitAny, type[ExplicitAny])
 assert_type(InferredTypeAny, type[InferredTypeAny])
@@ -1344,7 +1342,27 @@ assert_type(BareGeneric.x, int)
 );
 
 testcase!(
-    bug = "Class decorators are not applied",
+    test_class_decorator_untyped_report_order,
+    env_typed_only().enable_untyped_class_decorator_error(),
+    r#"
+from typing import Any
+
+def erase(cls: type) -> type[Any]: ...
+def identity[T](cls: type[T]) -> type[T]: ...
+def explicit_any(cls: type) -> Any: ...
+def untyped(cls): return cls
+
+@identity
+@erase
+class Erased: ...
+
+@untyped  # E: Untyped class decorator may modify `Kept`
+@explicit_any
+class Kept: ...
+"#,
+);
+
+testcase!(
     test_class_decorator_behavior_typed_only_union,
     env_typed_only(),
     r#"
@@ -1373,7 +1391,7 @@ def typed_factory(flag: bool) -> Callable[[type], int] | Callable[[type], str]:
 @typed_factory(True)
 class Typed: ...
 
-assert_type(Typed, type[Typed])
+assert_type(Typed, int | str)
 
 def any_factory(value: Any) -> Callable[[type], int] | Any:
     return value
@@ -1398,7 +1416,6 @@ assert_type(Instance, type[Instance])
 );
 
 testcase!(
-    bug = "Class decorators are not applied, and `-> type` ones are not reported",
     test_class_decorator_type_return_annotations,
     env_typed_only().enable_untyped_class_decorator_error(),
     r#"
@@ -1416,11 +1433,11 @@ def explicit(cls: type) -> type[Any]:
 def explicit_union(cls: type) -> type[Any] | None:
     return cls
 
-@bare
+@bare  # E: Untyped class decorator
 class Bare:
     x: int = 1
 
-@bare_union
+@bare_union  # E: Untyped class decorator
 class BareUnion:
     x: int = 1
 
@@ -1436,12 +1453,11 @@ assert_type(Bare().x, int)
 assert_type(BareUnion, type[BareUnion])
 assert_type(BareUnion().x, int)
 assert_type(Explicit, type[Any])
-assert_type(ExplicitUnion, type[Any])
+assert_type(ExplicitUnion, type[Any] | None)
 "#,
 );
 
 testcase!(
-    bug = "Class decorators are not applied, and untyped ones are not always reported",
     test_class_decorator_overloads_and_union_classification,
     env_typed_only().enable_untyped_class_decorator_error(),
     r#"
@@ -1456,14 +1472,14 @@ def deco(cls: Any) -> Any: ...
 @deco
 class Typed: ...
 
-assert_type(Typed, type[Typed])
+assert_type(Typed, int)
 
 def factory(value):
     if value:
         return lambda cls: cls
     return value
 
-@factory(True)
+@factory(True)  # E: Untyped class decorator
 class Untyped:
     x: int = 1
 
@@ -1474,7 +1490,6 @@ assert_type(Untyped().x, int)
 
 // Inside the class body, the class name refers to the decorated class, as it does at runtime.
 testcase!(
-    bug = "Class decorators are not applied",
     test_class_decorator_self_references_in_annotations,
     env_typed_only(),
     r#"
@@ -1484,14 +1499,14 @@ def to_wrapper(cls: type) -> Callable[[], int]: ...
 
 @to_wrapper
 class C:
-    other: "C"
-    def clone(self) -> "C": ...
+    other: "C"  # E: Expected a type form
+    def clone(self) -> "C": ...  # E: Expected a type form
 
 @cast("Callable[[type[D]], int]", lambda cls: 1)
 class D: ...
 
-assert_type(C, type[C])
-assert_type(D, type[D])
+assert_type(C, Callable[[], int])
+assert_type(D, int)
 "#,
 );
 
@@ -1510,6 +1525,22 @@ class Child(Base): ...
 
 assert_type(Base(), Base)
 assert_type(Child().inherited(), int)
+    "#,
+);
+
+testcase!(
+    test_class_decorator_bad_argument,
+    env_typed_only(),
+    r#"
+from typing import assert_type
+
+class Base: ...
+def needs_base(cls: type[Base]) -> type[Base]: ...
+
+@needs_base  # E: Argument `type[NotBase]` is not assignable to parameter `cls` with type `type[Base]`
+class NotBase: ...
+
+assert_type(NotBase, type[Base])
     "#,
 );
 
@@ -1550,7 +1581,6 @@ assert_type(FactoryChild().method("value"), str)
 );
 
 testcase!(
-    bug = "Class decorators are not applied",
     test_class_decorator_preserves_returned_type_arguments,
     env_typed_only(),
     r#"
@@ -1565,14 +1595,14 @@ class Box[T]:
         self.value = value
 
 assert_type(Box(1).value, int)
-Box("bad")
+Box("bad")  # E: is not assignable to parameter `value` with type `int`
 
 @cast("Callable[[type[Erased]], type[Erased[Any]]]", identity)
 class Erased[T]:
     def __init__(self, value: T) -> None:
         self.value = value
 
-assert_type(Erased(1).value, int)
+assert_type(Erased(1).value, Any)
     "#,
 );
 

@@ -8661,7 +8661,6 @@ assert_type(Bare().value, int)
 );
 
 testcase!(
-    bug = "Class decorators are not applied",
     test_shape_vars_decorator_name_is_not_metadata,
     shape_extensions_env().with_class_decorator_behavior(ClassDecoratorBehavior::TypedOnly),
     r#"
@@ -8673,7 +8672,7 @@ def shape_vars(declaration: str) -> Callable[[type], int]: ...
 @shape_vars("N")
 class Ordinary: ...
 
-assert_type(Ordinary, type[Ordinary])
+assert_type(Ordinary, int)
 "#,
 );
 
