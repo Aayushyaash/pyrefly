@@ -1530,35 +1530,30 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
     }
 
     /// Positional dtypes replace leading column dtypes unless the sequence is too large.
-    fn apply_polars_csv_sequence_overrides(
+    /// Mapped dtypes replace the dtypes of matching columns.
+    fn apply_polars_csv_overrides(
         columns: &mut [(Name, PolarsDType)],
         overrides: CsvDtypeOverrides,
     ) -> bool {
-        let CsvDtypeOverrides::Sequence(dtypes) = overrides else {
-            return true;
-        };
-        if dtypes.len() > columns.len() {
-            return false;
-        }
-        for ((_, dtype), override_dtype) in columns.iter_mut().zip(dtypes) {
-            *dtype = override_dtype;
-        }
-        true
-    }
-
-    /// Replace dtypes of the columns present in the mapping. Other columns remain unchanged.
-    fn apply_polars_csv_mapping_overrides(
-        columns: &mut [(Name, PolarsDType)],
-        overrides: &CsvDtypeOverrides,
-    ) {
-        let CsvDtypeOverrides::Mapping(map) = overrides else {
-            return;
-        };
-        for (name, dtype) in columns.iter_mut() {
-            if let Some(override_dtype) = map.get(name) {
-                *dtype = override_dtype.clone();
+        match overrides {
+            CsvDtypeOverrides::Unchanged => {}
+            CsvDtypeOverrides::Sequence(dtypes) => {
+                if dtypes.len() > columns.len() {
+                    return false;
+                }
+                for ((_, dtype), override_dtype) in columns.iter_mut().zip(dtypes) {
+                    *dtype = override_dtype;
+                }
+            }
+            CsvDtypeOverrides::Mapping(map) => {
+                for (name, dtype) in columns.iter_mut() {
+                    if let Some(override_dtype) = map.get(name) {
+                        *dtype = override_dtype.clone();
+                    }
+                }
             }
         }
+        true
     }
 
     /// New names replace leading columns unless they exceed the width or create duplicates.
@@ -1695,11 +1690,10 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 let CsvColumnSelection::Names(names) = selection else {
                     return None;
                 };
-                let mut columns: Vec<(Name, PolarsDType)> = names
+                let columns = names
                     .into_iter()
                     .map(|name| (name, PolarsDType::Unknown))
                     .collect();
-                Self::apply_polars_csv_mapping_overrides(&mut columns, &overrides);
                 (columns, CsvColumnSelection::All)
             }
         };
@@ -1708,7 +1702,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         {
             return None;
         }
-        if !Self::apply_polars_csv_sequence_overrides(&mut columns, overrides) {
+        if !Self::apply_polars_csv_overrides(&mut columns, overrides) {
             return None;
         }
         if !matches!(selection, CsvColumnSelection::All) {
@@ -1754,7 +1748,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         let CsvSchema::Given(mut columns) = schema else {
             return None;
         };
-        if !Self::apply_polars_csv_sequence_overrides(&mut columns, overrides)
+        if !Self::apply_polars_csv_overrides(&mut columns, overrides)
             || !Self::apply_polars_csv_row_index(&mut columns, row_index_name)
             || !Self::apply_polars_csv_new_columns(&mut columns, new_columns)
         {
