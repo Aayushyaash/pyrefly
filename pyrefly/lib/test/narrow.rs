@@ -3588,7 +3588,7 @@ class C:
     key: bytes
 
 def test(c: C, d: dict[str, int]) -> None:
-    if c.key in d:
+    if c.key in d:  # E: Membership test `in` is always False
         assert_type(c, C)
         assert_type(c.key, Never)
     "#,

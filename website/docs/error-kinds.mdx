@@ -2463,8 +2463,7 @@ a, b = untyped(1)  # the types of `a` and `b` are unknown
 
 Default severity: `warn`
 
-This warning is raised when an identity comparison (`is` or `is not`) is made between
-literals whose comparison result is statically known.
+This warning flags identity or builtin membership comparisons whose result is statically known.
 
 ```python
 def test0() -> None:

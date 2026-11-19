@@ -1298,11 +1298,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         self.unop_types(x, &t, errors)
     }
 
-    /// Checks for unnecessary identity comparisons.
-    ///
-    /// Only emits warnings for identity comparisons (`is` or `is not`) whose result is
-    /// statically known.
-    /// Returns early without warnings for other comparison operators.
+    /// Checks for unnecessary identity and builtin membership comparisons.
     fn check_unnecessary_comparison(
         &self,
         left: &Type,
@@ -1311,6 +1307,57 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         range: TextRange,
         errors: &ErrorCollector,
     ) {
+        if matches!(op, CmpOp::In | CmpOp::NotIn) {
+            // Equality between builtin groups can rule out a match; compatible element types
+            // cannot establish that an element is present. Unknown/custom equality or containment
+            // stays unchecked, and every union alternative must rule out a match.
+            let cannot_match = |element: &Type| {
+                left.as_unions().iter().all(|left| {
+                    self.equality_compatibility_group(left)
+                        .is_some_and(|left_group| {
+                            element.as_unions().iter().all(|element| {
+                                self.equality_compatibility_group(element)
+                                    .is_some_and(|group| group != left_group)
+                            })
+                        })
+                })
+            };
+            let impossible = !left.is_any()
+                && !left.is_never()
+                && right.as_unions().iter().all(|container| match container {
+                    Type::ClassType(class)
+                        if matches!(
+                            class.known(),
+                            Some(
+                                KnownClass::List
+                                    | KnownClass::Set
+                                    | KnownClass::FrozenSet
+                                    | KnownClass::Dict
+                                    | KnownClass::Tuple
+                            )
+                        ) =>
+                    {
+                        class.targs().as_slice().first().is_some_and(cannot_match)
+                    }
+                    Type::Tuple(Tuple::Concrete(elements)) => elements.iter().all(cannot_match),
+                    Type::Tuple(Tuple::Unbounded(element)) => cannot_match(element),
+                    _ => false,
+                });
+            if impossible {
+                self.error(
+                    errors,
+                    range,
+                    ErrorKind::UnnecessaryComparison,
+                    format!(
+                        "Membership test `{}` is always {}",
+                        op.as_str(),
+                        if op == CmpOp::In { "False" } else { "True" }
+                    ),
+                );
+            }
+            return;
+        }
+
         // Only check identity comparisons
         if !matches!(op, CmpOp::Is | CmpOp::IsNot) {
             return;

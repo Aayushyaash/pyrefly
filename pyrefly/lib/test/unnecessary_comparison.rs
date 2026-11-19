@@ -140,7 +140,6 @@ def f(x: Hashable):
 );
 
 testcase!(
-    bug = "Impossible builtin membership tests are not reported",
     test_unnecessary_membership,
     r#"
 from typing import Any, assert_type
@@ -157,14 +156,14 @@ def check(value: int, texts: list[str], names: set[str], keys: dict[str, int],
           containers: list[str] | set[bytes], mixed: list[str] | list[int],
           unknown: Any, gradual: list[Any], numbers: list[int], equal: Equal,
           custom: Container):
-    result = value in texts
+    result = value in texts  # E: Membership test `in` is always False
     assert_type(result, bool)
-    if value not in names: pass
-    if value in keys: pass
-    if value in fixed: pass
-    if value in variable: pass
-    if value in empty: pass
-    if value in containers: pass
+    if value not in names: pass  # E: Membership test `not in` is always True
+    if value in keys: pass  # E: Membership test `in` is always False
+    if value in fixed: pass  # E: Membership test `in` is always False
+    if value in variable: pass  # E: Membership test `in` is always False
+    if value in empty: pass  # E: Membership test `in` is always False
+    if value in containers: pass  # E: Membership test `in` is always False
     if value in mixed: pass
     if unknown in texts: pass
     if value in gradual: pass
