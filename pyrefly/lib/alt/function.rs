@@ -2498,7 +2498,22 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 continue;
             }
             let range = self.bindings().idx_to_key(*decorator_key).range();
-            let callable = decorator.clone();
+            let constructor = match decorator {
+                Type::ClassDef(cls) => Some(cls),
+                Type::Type(inner) if let Type::ClassType(cls) = &**inner => {
+                    Some(cls.class_object())
+                }
+                _ => None,
+            };
+            // A class whose `__new__` has no return annotation may return anything.
+            let callable = if constructor.is_some_and(|cls| {
+                self.get_class_member_with_defining_class(cls, &dunder::NEW)
+                    .is_some_and(|new| new.value.is_function_without_return_annotation())
+            }) {
+                self.heap.mk_any_implicit()
+            } else {
+                decorator.clone()
+            };
             let decorator_is_any = matches!(
                 decorator,
                 Type::Any(AnyStyle::Implicit | AnyStyle::Explicit)

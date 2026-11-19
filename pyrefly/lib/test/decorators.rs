@@ -1158,7 +1158,6 @@ g(f)
 );
 
 testcase!(
-    bug = "A class used as a class decorator produces an instance and is not reported",
     test_class_decorator_untyped_constructor_result,
     env_typed_only().enable_untyped_class_decorator_error(),
     r#"
@@ -1168,22 +1167,22 @@ class Passthrough:
     def __new__(cls, c):
         return c
 
-@Passthrough
+@Passthrough  # E: Untyped class decorator
 class D:
     x: int = 1
 
-assert_type(D, Passthrough)
-D.x  # E: Object of class `Passthrough` has no attribute `x`
+assert_type(D, type[D])
+assert_type(D.x, int)
 
 def decorator_factory() -> type[Passthrough]:
     return Passthrough
 
-@decorator_factory()
+@decorator_factory()  # E: Untyped class decorator
 class E:
     x: int = 1
 
-assert_type(E, Passthrough)
-E.x  # E: Object of class `Passthrough` has no attribute `x`
+assert_type(E, type[E])
+assert_type(E.x, int)
 
 class Wrapper[T]:
     def __init__(self, wrapped: type[T]) -> None:
@@ -1194,6 +1193,25 @@ class Wrapped:
     x: int = 1
 
 assert_type(Wrapped.wrapped().x, int)
+
+class Typed:
+    def __new__(cls, c: type) -> int: ...
+
+@Typed
+class F: ...
+
+assert_type(F, int)
+
+class Base:
+    def __new__(cls, c):
+        return super().__new__(cls)
+
+class Child(Base): ...
+
+@Child  # E: Untyped class decorator
+class G: ...
+
+assert_type(G, type[G])
 "#,
 );
 
