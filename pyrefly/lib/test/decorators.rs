@@ -1158,6 +1158,34 @@ g(f)
 );
 
 testcase!(
+    bug = "Erases a `dataclass_transform` class whose decorator returns `type[Any]`",
+    test_class_decorator_ignore_dataclass_transform_erasure,
+    TestEnv::new().with_class_decorator_behavior(ClassDecoratorBehavior::Ignore),
+    r#"
+from typing import Any, Callable, assert_type, dataclass_transform
+
+@dataclass_transform()
+def model(cls: type) -> type[Any]: ...
+
+@dataclass_transform()
+def factory(*, frozen: bool = False) -> Callable[[type], type[Any]]: ...
+
+@model
+class Direct:
+    x: int
+
+@factory(frozen=True)
+class Factory:
+    x: int
+
+assert_type(Direct(x=1).x, Any)
+assert_type(Factory(x=1).x, int)
+Direct(x="wrong")
+Factory(x="wrong")  # E: Argument `Literal['wrong']` is not assignable to parameter `x` with type `int`
+"#,
+);
+
+testcase!(
     test_class_decorator_dataclass_preserves_class,
     env_typed_only(),
     r#"
