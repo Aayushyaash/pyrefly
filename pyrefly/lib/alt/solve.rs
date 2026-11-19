@@ -7521,75 +7521,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             Binding::Import(x) => self.solve_import(x, errors),
             Binding::ClassDef(x, decorators) => match &self.get_idx(*x).0 {
                 None => self.heap.mk_any_implicit(),
-                Some(cls) => {
-                    // A class decorator obscures the class if its own type is `Any`, or if it
-                    // returns an unknown type. Class decorators are not applied below, so the
-                    // result is read from the decorator's signatures rather than by calling it.
-                    // Like for functions, only the first decorator (in application order) that
-                    // makes the result unknown is blamed for it.
-                    let returns_unknown = |callable: &Type| {
-                        let mut signatures = callable.toplevel_callable_signatures().peekable();
-                        signatures.peek().is_some()
-                            && signatures.all(|(sig, _)| sig.ret.has_top_level_implicit_any())
-                    };
-                    let mut obscured = false;
-                    for idx in decorators.iter().rev() {
-                        let decorator_ty = &self.get_idx(*idx).ty;
-                        let decorator_is_any = matches!(
-                            decorator_ty,
-                            Type::Any(AnyStyle::Implicit | AnyStyle::Explicit)
-                        );
-                        if decorator_is_any
-                            || (!obscured
-                                && match decorator_ty {
-                                    Type::ClassType(instance) => self
-                                        .instance_as_dunder_call(instance)
-                                        .is_some_and(|call| returns_unknown(&call)),
-                                    _ => returns_unknown(decorator_ty),
-                                })
-                        {
-                            obscured = true;
-                            self.error(
-                                errors,
-                                self.bindings().idx_to_key(*idx).range(),
-                                ErrorKind::UntypedClassDecorator,
-                                format!(
-                                    "Untyped class decorator may modify `{}` in unexpected ways",
-                                    cls.name(self)
-                                ),
-                            );
-                        }
-                    }
-                    // TODO: analyze the class decorators beyond the unknown-type check above. We don't
-                    // support general type-level analysis of class decorators (the ones we do
-                    // support, like dataclass-related ones, are handled via custom bindings).
-                    //
-                    // Note that all decorators have their own binding so they are still type checked for errors
-                    // *inside* the decorator. The only application-level effect we honor is an
-                    // explicit `type[Any]` return, which intentionally erases the class interface.
-                    //
-                    // We use `.any()` across the chain because if *any* decorator is annotated
-                    // with `-> type[Any]`, all *later* decorators receive whatever class that
-                    // dynamic decorator produces (an `Any`-ish class), so the final output must
-                    // also be treated as dynamic. This is by intent: the escape hatch lets library
-                    // authors signal that the class flows through a decorator a type checker cannot
-                    // model accurately, so the end result is not modelable either.
-                    let erases_class = decorators.iter().any(|idx| {
-                        let decorator_ty = &self.get_idx(*idx).ty;
-                        // Only an explicit `-> type[Any]` return annotation counts; a return
-                        // type inferred from the body (e.g. `return cls` where `cls: type[Any]`)
-                        // does not, since the user did not opt in to erasing the class.
-                        !decorator_ty.toplevel_func_metadata().is_some_and(|meta| meta.flags.is_return_inferred)
-                            && decorator_ty
-                                .toplevel_callable_signatures()
-                                .any(|(c, _)| matches!(&c.ret, Type::Type(inner) if matches!(&**inner, Type::Any(AnyStyle::Explicit))))
-                    });
-                    if erases_class {
-                        self.heap.mk_type_of(self.heap.mk_any_explicit())
-                    } else {
-                        self.heap.mk_class_def(cls.dupe())
-                    }
-                }
+                Some(cls) => self.decorate_class(cls, decorators, errors),
             },
             Binding::AnnotatedType(ann, val) => {
                 let annot = self.get_idx(*ann);

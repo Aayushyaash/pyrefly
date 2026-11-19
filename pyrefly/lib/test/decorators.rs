@@ -1233,7 +1233,6 @@ assert_type(D.x, Any)
 );
 
 testcase!(
-    bug = "Erases a `dataclass_transform` class whose decorator returns `type[Any]`",
     test_class_decorator_ignore_dataclass_transform_erasure,
     TestEnv::new().with_class_decorator_behavior(ClassDecoratorBehavior::Ignore),
     r#"
@@ -1253,9 +1252,9 @@ class Direct:
 class Factory:
     x: int
 
-assert_type(Direct(x=1).x, Any)
+assert_type(Direct(x=1).x, int)
 assert_type(Factory(x=1).x, int)
-Direct(x="wrong")
+Direct(x="wrong")  # E: Argument `Literal['wrong']` is not assignable to parameter `x` with type `int`
 Factory(x="wrong")  # E: Argument `Literal['wrong']` is not assignable to parameter `x` with type `int`
 "#,
 );
@@ -1437,7 +1436,7 @@ assert_type(Bare().x, int)
 assert_type(BareUnion, type[BareUnion])
 assert_type(BareUnion().x, int)
 assert_type(Explicit, type[Any])
-assert_type(ExplicitUnion, type[ExplicitUnion])
+assert_type(ExplicitUnion, type[Any])
 "#,
 );
 
@@ -2959,7 +2958,6 @@ class C: ...
 );
 
 testcase!(
-    bug = "A dataclass_transform decorator should not be reported as untyped",
     test_untyped_dataclass_transform_class_decorator_no_error,
     TestEnv::new().enable_untyped_class_decorator_error(),
     r#"
@@ -2969,7 +2967,7 @@ from typing import dataclass_transform
 def model(cls):
     return cls
 
-@model  # E: Untyped class decorator may modify `A` in unexpected ways
+@model
 class A:
     x: int
 

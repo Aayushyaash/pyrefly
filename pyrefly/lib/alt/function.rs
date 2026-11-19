@@ -2435,6 +2435,93 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         }
     }
 
+    /// Whether a return annotation explicitly opts out of tracking the class interface.
+    fn class_decorator_erases_class(&self, decorator: &Type) -> bool {
+        decorator.clone().into_unions().iter().any(|member| {
+            let inferred = member
+                .toplevel_func_metadata()
+                .is_some_and(|meta| meta.flags.is_return_inferred);
+            !inferred
+                && member.toplevel_callable_signatures().any(|(signature, _)| {
+                    signature.ret.clone().into_unions().iter().any(|ret| {
+                        matches!(ret, Type::Type(inner) if matches!(&**inner, Type::Any(AnyStyle::Explicit)))
+                    })
+                })
+        })
+    }
+
+    /// The type bound to a class's name after its decorators are checked, in application order.
+    pub(crate) fn decorate_class(
+        &self,
+        cls: &Class,
+        decorators: &[Idx<KeyDecorator>],
+        errors: &ErrorCollector,
+    ) -> Type {
+        let mut ty = self.heap.mk_class_def(cls.dupe());
+        // Class decorators are not applied, so whether a decorator returns an unknown type is
+        // read from its signatures.
+        let returns_unknown = |callable: &Type| {
+            let mut signatures = callable.toplevel_callable_signatures().peekable();
+            signatures.peek().is_some()
+                && signatures.all(|(sig, _)| sig.ret.has_top_level_implicit_any())
+        };
+        // Like for functions, only the first decorator (in application order) that makes the
+        // result unknown is reported, unless the decorator itself is `Any`.
+        let mut obscured = false;
+        for decorator_key in decorators.iter().rev() {
+            let decorator = &self.get_idx(*decorator_key).ty;
+            let metadata = match decorator {
+                Type::KwCall(call) => Some(&call.func_metadata),
+                ty => ty.toplevel_func_metadata(),
+            };
+            // Pyrefly models dataclass decorators directly rather than through their return types.
+            // Calling `final` would depend on the standard library classes it is used to define.
+            if decorator.is_error()
+                || metadata.is_some_and(|meta| {
+                    meta.flags.dataclass_transform_metadata.is_some()
+                        || matches!(
+                            meta.kind,
+                            FunctionKind::Dataclass
+                                | FunctionKind::DataclassTransform
+                                | FunctionKind::Final
+                        )
+                })
+            {
+                continue;
+            }
+            let decorator_is_any = matches!(
+                decorator,
+                Type::Any(AnyStyle::Implicit | AnyStyle::Explicit)
+            );
+            if decorator_is_any
+                || (!obscured
+                    && match decorator {
+                        Type::ClassType(instance) => self
+                            .instance_as_dunder_call(instance)
+                            .is_some_and(|call| returns_unknown(&call)),
+                        _ => returns_unknown(decorator),
+                    })
+            {
+                obscured = true;
+                self.error(
+                    errors,
+                    self.bindings().idx_to_key(*decorator_key).range(),
+                    ErrorKind::UntypedClassDecorator,
+                    format!(
+                        "Untyped class decorator may modify `{}` in unexpected ways",
+                        cls.name(self)
+                    ),
+                );
+            }
+            // An explicit `type[Any]` return erases the class interface. Later decorators
+            // receive the erased class, so the result stays erased.
+            if self.class_decorator_erases_class(decorator) {
+                ty = self.heap.mk_type_of(self.heap.mk_any_explicit());
+            }
+        }
+        ty
+    }
+
     /// For a type guard function, validate whether it has at least one
     /// positional argument.
     fn validate_type_guard_positional_argument_count(
