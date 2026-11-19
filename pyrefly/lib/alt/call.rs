@@ -6,6 +6,7 @@
  */
 
 use std::iter;
+use std::slice;
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -2158,10 +2159,16 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     };
                 let (overloads, self_obj) = match Vec1::try_from_vec(accepting) {
                     // If the receiver rules out every overload but one, that overload is called
-                    // like a non-overloaded method. This bypasses `call_overloads`, so its report
-                    // of a deprecated overload is repeated here.
+                    // like a non-overloaded method. This bypasses `call_overloads`, so its trace
+                    // and its report of a deprecated overload are repeated here.
                     Ok(accepting) if accepting.len() == 1 && !rejecting.is_empty() => {
                         let (overload, _) = accepting.split_off_first();
+                        self.trace_overload_call(
+                            slice::from_ref(&overload),
+                            &overload,
+                            arguments_range,
+                            true,
+                        );
                         self.report_deprecated_overload(
                             &overload.1,
                             arguments_range,

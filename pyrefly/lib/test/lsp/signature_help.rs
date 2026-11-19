@@ -567,8 +567,6 @@ Signature Help Result: active=1
     );
 }
 
-// BUG: When the receiver selects one overload, signature help shows the whole overload as one
-// unparsed signature instead of the selected overload's parameters.
 #[test]
 fn receiver_selected_overload_test() {
     let code = r#"
@@ -595,18 +593,12 @@ def test(ci: C[int]):
 13 |     ci.f()
               ^
 Signature Help Result: active=0
-- Overload[
-  def f(self: C[int], x: int) -> int: ...
-  def f(self: C[str], x: str) -> str: ...
-]
+- (self: C[int], x: int) -> int, parameters=[x: int], active parameter = 0
 
 15 |     ci.f(1)
                ^
 Signature Help Result: active=0
-- Overload[
-  def f(self: C[int], x: int) -> int: ...
-  def f(self: C[str], x: str) -> str: ...
-]
+- (self: C[int], x: int) -> int, parameters=[x: int], active parameter = 0
 "#
         .trim(),
         report.trim(),
