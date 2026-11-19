@@ -284,6 +284,12 @@ impl<'a> BindingsBuilder<'a> {
             ShapeDeclarationOwner::Class(class_indices.class_idx),
             QuantifiedAnchor::Class(class_indices.def_index),
         );
+        // Shape declaration decorators are consumed above, so they don't replace the class.
+        let is_shape_declaration = x
+            .decorator_list
+            .iter()
+            .map(|decorator| self.is_shape_declaration_decorator(decorator))
+            .collect::<Vec<_>>();
         let decorators =
             self.ensure_and_bind_decorators(mem::take(&mut x.decorator_list), class_object.usage());
 
@@ -626,7 +632,12 @@ impl<'a> BindingsBuilder<'a> {
             class_object,
             Binding::ClassDef(
                 class_indices.class_idx,
-                decorators.clone().into_boxed_slice(),
+                decorators
+                    .iter()
+                    .zip(is_shape_declaration)
+                    .filter(|(_, is_shape_declaration)| !is_shape_declaration)
+                    .map(|(decorator, _)| *decorator)
+                    .collect(),
             ),
             FlowStyle::ClassDef {
                 class_idx: class_indices.class_object_idx,

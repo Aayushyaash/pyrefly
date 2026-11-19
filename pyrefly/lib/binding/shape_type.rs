@@ -636,13 +636,9 @@ impl BindingsBuilder<'_> {
         let declaration = match commented {
             Some(comment) => {
                 if decorated.is_some()
-                    || decorators.iter().any(|decorator| {
-                        let expression = decorator
-                            .expression
-                            .as_call_expr()
-                            .map_or(&decorator.expression, |call| call.func.as_ref());
-                        self.shape_declaration_kind(expression).is_some()
-                    })
+                    || decorators
+                        .iter()
+                        .any(|decorator| self.is_shape_declaration_decorator(decorator))
                 {
                     self.error(name.range(), ErrorKind::InvalidArgument,
                         "A definition cannot combine `# shapes:` with a shape declaration decorator".to_owned());
@@ -748,6 +744,15 @@ impl BindingsBuilder<'_> {
                 .map(|dims| (kind, dims));
         }
         declaration
+    }
+
+    /// Whether a decorator declares shape variables, such as `@shape_vars(...)`.
+    pub(super) fn is_shape_declaration_decorator(&self, decorator: &Decorator) -> bool {
+        let expression = decorator
+            .expression
+            .as_call_expr()
+            .map_or(&decorator.expression, |call| call.func.as_ref());
+        self.shape_declaration_kind(expression).is_some()
     }
 
     fn shape_declaration_kind(&self, expression: &Expr) -> Option<ShapeDeclarationKind> {
