@@ -1158,6 +1158,41 @@ g(f)
 );
 
 testcase!(
+    bug = "Erases the class although the selected overload returns `Any`",
+    test_class_decorator_selected_overload_returns_any,
+    env_typed_only(),
+    r#"
+from typing import Any, assert_type, overload
+
+@overload
+def deco(cls: type) -> Any: ...
+@overload
+def deco(cls: str) -> int: ...
+def deco(cls: Any) -> Any: ...
+
+@deco
+class C:
+    x: int = 1
+
+assert_type(C, type[C])
+assert_type(C.x, int)
+
+@overload
+def erasing_overload(cls: type) -> Any: ...
+@overload
+def erasing_overload(cls: str) -> type[Any]: ...
+def erasing_overload(cls: Any) -> Any: ...
+
+@erasing_overload
+class D:
+    x: int = 1
+
+assert_type(D, type[D])
+assert_type(D.x, Any)
+"#,
+);
+
+testcase!(
     bug = "Erases a `dataclass_transform` class whose decorator returns `type[Any]`",
     test_class_decorator_ignore_dataclass_transform_erasure,
     TestEnv::new().with_class_decorator_behavior(ClassDecoratorBehavior::Ignore),
@@ -1363,6 +1398,38 @@ assert_type(BareUnion, type[BareUnion])
 assert_type(BareUnion().x, int)
 assert_type(Explicit, type[Any])
 assert_type(ExplicitUnion, type[ExplicitUnion])
+"#,
+);
+
+testcase!(
+    bug = "Class decorators are not applied, and untyped ones are not always reported",
+    test_class_decorator_overloads_and_union_classification,
+    env_typed_only().enable_untyped_class_decorator_error(),
+    r#"
+from typing import Any, assert_type, overload
+
+@overload
+def deco(cls: type[int]) -> Any: ...
+@overload
+def deco(cls: type) -> int: ...
+def deco(cls: Any) -> Any: ...
+
+@deco
+class Typed: ...
+
+assert_type(Typed, type[Typed])
+
+def factory(value):
+    if value:
+        return lambda cls: cls
+    return value
+
+@factory(True)
+class Untyped:
+    x: int = 1
+
+assert_type(Untyped, type[Untyped])
+assert_type(Untyped().x, int)
 "#,
 );
 
