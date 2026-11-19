@@ -332,6 +332,11 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             }
         } else {
             errors.extend(callee_errors);
+            // A successful call's other soft argument diagnostics stay dropped, but a call that
+            // resolves to a deprecated overload is still reported.
+            errors.extend_filtered(call_errors, |error| {
+                error.error_kind() == ErrorKind::Deprecated
+            });
             OperatorCallOutcome::Returned(self.interpret_operator_return(ret, inferred_placeholder))
         }
     }

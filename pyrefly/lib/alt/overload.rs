@@ -610,7 +610,15 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             "Call to deprecated overload `{}`",
             func.metadata.kind.format(self, self.module().name())
         );
-        let mut error_builder = errors.error_builder(range, ErrorKind::Deprecated, header);
+        // The call's context supplies the header, as in `report_call_deprecation`, so that it
+        // doesn't replace the `deprecated` kind.
+        let mut error_builder = match context {
+            Some(ctx) => errors
+                .error_builder(range, ErrorKind::Deprecated, ctx().format(self))
+                .with_detail(header)
+                .without_deprecated_tag(),
+            None => errors.error_builder(range, ErrorKind::Deprecated, header),
+        };
         if let Some(detail) = deprecation.as_error_detail() {
             error_builder = error_builder.with_detail(detail);
         }
@@ -627,7 +635,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     .with_quick_fix(ErrorQuickFix::ReplaceDeprecatedContextManagerReturn(kind));
             }
         }
-        error_builder.with_context(self, context).emit();
+        error_builder.emit();
     }
 
     /// Read and combine the branches of an overloaded value, dropping branches that don't apply.

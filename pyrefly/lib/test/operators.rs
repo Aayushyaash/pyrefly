@@ -1511,7 +1511,6 @@ assert_type(Left() + Right(), int)  # E: `Left.__add__` is deprecated  # E: `Rig
 );
 
 testcase!(
-    bug = "A deprecated overload called by an operator gets the wrong error kind",
     test_deprecated_overload_operator,
     r#"
 from typing import assert_type, overload
@@ -1552,13 +1551,13 @@ class Reflected:
         return 0
 
 def test(g: Selected[int]):
-    assert_type(Reflected() + Right(), int)  # E: assert_type(str, int) failed
+    assert_type(Reflected() + Right(), int)  # E: Call to deprecated overload `Reflected.__add__`
     Plain() + 1  # E: `Plain.__add__` is deprecated
     Overloaded() + 1  # E: Call to deprecated overload `Overloaded.__add__`
     g + 1  # E: Call to deprecated overload `Selected.__add__`
     Plain() + 1  # pyrefly: ignore[deprecated]
-    Overloaded() + 1  # pyrefly: ignore[deprecated]  # E: Call to deprecated overload `Overloaded.__add__`
-    g + 1  # pyrefly: ignore[deprecated]  # E: Call to deprecated overload `Selected.__add__`
+    Overloaded() + 1  # pyrefly: ignore[deprecated]
+    g + 1  # pyrefly: ignore[deprecated]
     "#,
 );
 
