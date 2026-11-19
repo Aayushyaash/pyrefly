@@ -510,27 +510,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         {
             *targs = chosen_targs;
         }
-        // Record the closest overload to power IDE services. Guard on the trace
-        // sink before building the (per-signature cloned) traces, which would
-        // otherwise be wasted work in a normal non-tracing check.
-        if self.current().tracing_enabled() {
-            let mut overload_trace = |target: &TargetWithTParams<Function>| {
-                let tparams = target
-                    .0
-                    .as_ref()
-                    .filter(|tparams| !tparams.is_empty())
-                    .cloned();
-                OverloadTrace::new(target.1.signature.clone(), tparams)
-            };
-            let all_overload_traces = overloads.iter().map(&mut overload_trace).collect();
-            let closest_overload_trace = overload_trace(closest_overload.func);
-            self.record_overload_trace(
-                arguments_range,
-                all_overload_traces,
-                closest_overload_trace,
-                matched,
-            );
-        }
+        self.trace_overload_call(&overloads, closest_overload.func, arguments_range, matched);
         if matched {
             self.report_deprecated_overload(
                 &closest_overload.func.1,
@@ -593,6 +573,32 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 closest_overload.argmap,
             )
         }
+    }
+
+    /// Record the overloads considered for a call and the closest one, for IDE services.
+    /// `chosen` says whether the call resolved to the closest overload.
+    pub(crate) fn trace_overload_call(
+        &self,
+        overloads: &[TargetWithTParams<Function>],
+        closest: &TargetWithTParams<Function>,
+        range: TextRange,
+        chosen: bool,
+    ) {
+        // Guard on the trace sink before building the (per-signature cloned) traces, which
+        // would otherwise be wasted work in a normal non-tracing check.
+        if !self.current().tracing_enabled() {
+            return;
+        }
+        let overload_trace = |target: &TargetWithTParams<Function>| {
+            let tparams = target
+                .0
+                .as_ref()
+                .filter(|tparams| !tparams.is_empty())
+                .cloned();
+            OverloadTrace::new(target.1.signature.clone(), tparams)
+        };
+        let all_overload_traces = overloads.iter().map(overload_trace).collect();
+        self.record_overload_trace(range, all_overload_traces, overload_trace(closest), chosen);
     }
 
     /// Report a call to `func` if it is a deprecated overload signature.
