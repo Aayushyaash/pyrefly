@@ -6470,3 +6470,28 @@ def f(x: Mapping[Any, Any]):
     assert_type(z, dict[Any, Any])
     "#,
 );
+
+testcase!(
+    bug = "Nonempty tuple assertions are not reported",
+    test_unnecessary_assert_tuple,
+    r#"
+from typing import Any
+
+def check(condition: bool, fixed: tuple[int, str], variable: tuple[int, ...],
+          maybe_empty: tuple[()] | tuple[int], unknown: Any):
+    assert (condition, "message")
+    assert fixed
+    assert (condition,)
+    assert condition, "message"
+    assert variable
+    assert maybe_empty
+    assert unknown
+    assert isinstance(condition, bool)
+    assert True
+    while True:
+        break
+
+def empty():
+    assert ()
+"#,
+);
