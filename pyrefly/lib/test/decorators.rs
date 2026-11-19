@@ -1158,6 +1158,46 @@ g(f)
 );
 
 testcase!(
+    bug = "Class decorators are not applied, and untyped ones are not always reported",
+    test_class_decorator_untyped_constructor_result,
+    env_typed_only().enable_untyped_class_decorator_error(),
+    r#"
+from typing import assert_type
+
+class Passthrough:
+    def __new__(cls, c):
+        return c
+
+@Passthrough
+class D:
+    x: int = 1
+
+assert_type(D, type[D])
+assert_type(D.x, int)
+
+def decorator_factory() -> type[Passthrough]:
+    return Passthrough
+
+@decorator_factory()
+class E:
+    x: int = 1
+
+assert_type(E, type[E])
+assert_type(E.x, int)
+
+class Wrapper[T]:
+    def __init__(self, wrapped: type[T]) -> None:
+        self.wrapped = wrapped
+
+@Wrapper
+class Wrapped:
+    x: int = 1
+
+assert_type(Wrapped, type[Wrapped])
+"#,
+);
+
+testcase!(
     bug = "Erases the class although the selected overload returns `Any`",
     test_class_decorator_selected_overload_returns_any,
     env_typed_only(),
@@ -1431,6 +1471,47 @@ class Untyped:
 assert_type(Untyped, type[Untyped])
 assert_type(Untyped().x, int)
 "#,
+);
+
+// Inside the class body, the class name refers to the decorated class, as it does at runtime.
+testcase!(
+    bug = "Class decorators are not applied",
+    test_class_decorator_self_references_in_annotations,
+    env_typed_only(),
+    r#"
+from typing import Callable, assert_type, cast
+
+def to_wrapper(cls: type) -> Callable[[], int]: ...
+
+@to_wrapper
+class C:
+    other: "C"
+    def clone(self) -> "C": ...
+
+@cast("Callable[[type[D]], int]", lambda cls: 1)
+class D: ...
+
+assert_type(C, type[C])
+assert_type(D, type[D])
+"#,
+);
+
+testcase!(
+    test_class_decorator_error_preserves_inheritance,
+    env_typed_only(),
+    r#"
+from typing import assert_type
+
+@missing_decorator  # E: Could not find name `missing_decorator`
+class Base:
+    def inherited(self) -> int:
+        return 1
+
+class Child(Base): ...
+
+assert_type(Base(), Base)
+assert_type(Child().inherited(), int)
+    "#,
 );
 
 testcase!(
