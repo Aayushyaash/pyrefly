@@ -739,7 +739,6 @@ fn collect_unpacked_member(ty: &Type, heap: &TypeHeap, out: &mut Vec<Type>) {
 mod tests {
     use pyrefly_python::module_name::ModuleName;
     use ruff_python_ast::name::Name;
-    use ruff_text_size::TextRange;
 
     use crate::class::ClassType;
     use crate::env::TypeEnv;
