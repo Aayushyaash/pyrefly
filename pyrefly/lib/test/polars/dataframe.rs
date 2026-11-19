@@ -252,6 +252,7 @@ from typing import reveal_type
 
 reveal_type(pl.read_csv("data.csv", schema={"a": pl.Int64, "b": pl.Float64, "c": pl.String}, columns=["c", "a"]))  # E: revealed type: DataFrame[a: Int64, c: String]
 reveal_type(pl.read_csv("data.csv", schema={"a": pl.Int64, "b": pl.Float64, "c": pl.String}, columns=[2, 0]))  # E: revealed type: DataFrame[a: Int64, c: String]
+reveal_type(pl.read_csv("data.csv", schema={"a": pl.Int64}, columns=[1]))  # E: revealed type: DataFrame
 reveal_type(pl.read_csv("data.csv", schema={"a": pl.Int64, "b": pl.Float64, "c": pl.String}, columns=[], row_index_name="idx", new_columns=["row", "first"]))  # E: revealed type: DataFrame[row: UInt32, first: Int64, b: Float64, c: String]
 "#,
 );
@@ -279,6 +280,7 @@ import polars as pl
 from typing import reveal_type
 
 reveal_type(pl.read_csv("data.csv", columns=["a"]))  # E: revealed type: DataFrame[a: Unknown]
+reveal_type(pl.read_csv("data.csv", columns=[0]))  # E: revealed type: DataFrame
 reveal_type(pl.read_csv("data.csv", columns=["a"], schema_overrides={}))  # E: revealed type: DataFrame[a: Unknown]
 reveal_type(pl.read_csv("data.csv", columns=["a"], schema_overrides={"z": pl.Int64}))  # E: revealed type: DataFrame[a: Unknown]
 "#,

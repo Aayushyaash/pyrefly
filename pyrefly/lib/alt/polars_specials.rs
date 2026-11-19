@@ -1428,7 +1428,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
     }
 
     /// Parse static projections; an empty sequence selects every column.
-    fn polars_csv_selection(&self, expr: &Expr, width: usize) -> Option<CsvColumnSelection> {
+    fn polars_csv_selection(&self, expr: &Expr) -> Option<CsvColumnSelection> {
         let values = literal_sequence(expr)?;
         if values.is_empty() {
             return Some(CsvColumnSelection::All);
@@ -1445,8 +1445,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             .iter()
             .map(|expr| usize::try_from(self.polars_int_literal(expr)?).ok())
             .collect::<Option<SmallSet<_>>>()?;
-        (indices.len() == values.len() && indices.iter().all(|index| *index < width))
-            .then_some(CsvColumnSelection::Indices(indices))
+        (indices.len() == values.len()).then_some(CsvColumnSelection::Indices(indices))
     }
 
     fn polars_csv_schema(&self, expr: Option<&Expr>) -> Option<CsvSchema> {
@@ -1649,13 +1648,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             PolarsCsvFunction::Read => {
                 let selection = match Self::non_none_csv_option(selection) {
                     None => CsvColumnSelection::All,
-                    Some(expr) => {
-                        let width = match &common.schema {
-                            CsvSchema::Given(columns) => columns.len(),
-                            CsvSchema::Missing => 0, // Reject selection by index if schema is missing
-                        };
-                        self.polars_csv_selection(expr, width)?
-                    }
+                    Some(expr) => self.polars_csv_selection(expr)?,
                 };
                 PolarsCsvOptions::Read { common, selection }
             }
@@ -1710,6 +1703,11 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 && !names
                     .iter()
                     .all(|name| columns.iter().any(|(column, _)| column == name))
+            {
+                return None;
+            }
+            if let CsvColumnSelection::Indices(indices) = &selection
+                && indices.iter().any(|index| *index >= columns.len())
             {
                 return None;
             }
