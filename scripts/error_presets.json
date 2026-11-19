@@ -117,6 +117,7 @@
     "parse-error": ["basic", "legacy", "default", "strict", "all"],
     "partially-unknown-type": ["all"],
     "possibly-uninitialized-attribute": ["strict", "all"],
+    "possibly-unsolved-type-var": ["legacy", "default", "strict", "all"],
     "potential-bad-keyword-argument": ["strict", "all"],
     "property-type-mismatch": ["strict", "all"],
     "protected-access": ["all"],

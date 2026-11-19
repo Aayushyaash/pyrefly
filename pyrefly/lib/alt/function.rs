@@ -2350,7 +2350,12 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
     /// occurrence such as `list[T]` is exempt because invariance can make it differ from
     /// `list[object]`. Constrained type variables are exempt, matching pyright.
     ///
-    /// Type variables with defaults are exempt, matching pyright.
+    /// A type variable in the return type that only parameters without a known default value
+    /// mention (a `...` default in a function whose body is `...`) is left unsolved by a call
+    /// that omits those arguments.
+    ///
+    /// Type variables with defaults are exempt from both checks: an unsolved one falls back to
+    /// its default.
     fn check_type_var_use(
         &self,
         def: &UndecoratedFunction,
@@ -2394,6 +2399,36 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     format!(
                         "Type variable `{}` appears only once in the signature of `{name}`",
                         q.name
+                    ),
+                );
+            }
+
+            let mut mentioning_params = def
+                .params
+                .iter()
+                .filter(|p| occurrences(p.as_type()) > 0)
+                .peekable();
+            if occurrences(ret) > 0
+                && let Some(first) = mentioning_params.peek().copied()
+                && mentioning_params.all(|p| {
+                    matches!(
+                        p,
+                        Param::PosOnly(_, _, Required::Optional(None))
+                            | Param::Pos(_, _, Required::Optional(None))
+                            | Param::KwOnly(_, _, Required::Optional(None))
+                    )
+                })
+            {
+                self.error(
+                    errors,
+                    name.range(),
+                    ErrorKind::PossiblyUnsolvedTypeVar,
+                    format!(
+                        "Type variable `{}` may go unsolved if a call to `{name}` omits argument `{}`",
+                        q.name,
+                        first
+                            .name()
+                            .expect("parameters of a function definition are named"),
                     ),
                 );
             }

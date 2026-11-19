@@ -1888,6 +1888,25 @@ A path that raises, or ends in a call to a `Never` or `NoReturn` function, does 
 A bare class-body annotation is checked against the methods that assign it.
 If no initialization method assigns it, [`uninitialized-instance-variable`](#uninitialized-instance-variable) reports it instead.
 
+## possibly-unsolved-type-var
+
+Default severity: `warn`
+
+In a stub, or any function whose body is `...` (such as an overload), a `...` default does not
+give the parameter a value. If only such parameters mention a type variable in the return type, a
+call that omits them leaves the type variable unsolved, and the call returns `Unknown`. Type
+variables with defaults are not reported.
+
+```python
+def first[T](items: list[T] = ...) -> T: ...  # possibly-unsolved-type-var
+
+first()  # Unknown
+```
+
+To fix it, add an overload for calls that omit the argument, or give the type variable a default.
+
+This is a sub-kind of [invalid-type-var](#invalid-type-var): suppressing `invalid-type-var` also suppresses this error.
+
 ## potential-bad-keyword-argument
 
 Default severity: `ignore`

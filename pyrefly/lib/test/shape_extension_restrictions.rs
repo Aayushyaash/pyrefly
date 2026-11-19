@@ -193,7 +193,7 @@ fn shape_extension_stub_default_env() -> TestEnv {
         r#"
 from shape_extensions import Flag
 
-def no_default[K: Flag[int]](k: K = ...) -> K: ...
+def no_default[K: Flag[int]](k: K = ...) -> K: ...  # E: Type variable `K` may go unsolved if a call to `no_default` omits argument `k`
 def type_parameter_default[K: Flag[int] = 3](k: K = ...) -> K: ...
 "#,
     );

@@ -412,6 +412,9 @@ pub enum ErrorKind {
     PartiallyUnknownType,
     /// An attribute may be uninitialized on some control-flow paths.
     PossiblyUninitializedAttribute,
+    /// A type variable in a function's return type that only parameters without a known default
+    /// value mention, so a call that omits those arguments leaves it unsolved.
+    PossiblyUnsolvedTypeVar,
     /// A potential conflict between an explicit keyword argument and a NotRequired
     /// TypedDict field. The field may be absent at runtime, so the conflict is not
     /// guaranteed. This is a separate error code from BadKeywordArgument to allow
@@ -632,7 +635,9 @@ impl ErrorKind {
                 Some(ErrorKind::PytorchEfficiencyLints)
             }
             ErrorKind::UnannotatedPublicReturn => Some(ErrorKind::UnannotatedReturn),
-            ErrorKind::UnnecessaryTypeVar => Some(ErrorKind::InvalidTypeVar),
+            ErrorKind::PossiblyUnsolvedTypeVar | ErrorKind::UnnecessaryTypeVar => {
+                Some(ErrorKind::InvalidTypeVar)
+            }
             _ => None,
         }
     }
@@ -708,6 +713,7 @@ impl ErrorKind {
             ErrorKind::OpenUnpacking => Severity::Ignore,
             ErrorKind::OrderedDataclassInheritance => Severity::Warn,
             ErrorKind::PossiblyUninitializedAttribute => Severity::Ignore,
+            ErrorKind::PossiblyUnsolvedTypeVar => Severity::Warn,
             ErrorKind::PotentialBadKeywordArgument => Severity::Ignore,
             ErrorKind::PropertyTypeMismatch => Severity::Ignore,
             ErrorKind::ProtectedAccess => Severity::Ignore,

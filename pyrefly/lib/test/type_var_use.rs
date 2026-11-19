@@ -72,23 +72,22 @@ def make_rank_one[BatchSize: IntVar]() -> Tensor[[BatchSize]]: ...
 // A function whose body is `...` treats a `...` default as an unknown value, so a type
 // variable that only such parameters mention is solved to `Unknown` when they are omitted.
 testcase!(
-    bug = "A return type variable can go unsolved when optional arguments are omitted",
     test_possibly_unsolved_type_var,
     r#"
 from typing import Callable, overload, reveal_type
 
-def omitted[T](value: T = ...) -> T: ...
+def omitted[T](value: T = ...) -> T: ...  # E: Type variable `T` may go unsolved if a call to `omitted` omits argument `value`
 x = omitted()
 reveal_type(x)  # E: revealed type: Unknown
 
-def keyword_only[T](*, value: T = ...) -> list[T]: ...
-def two_optional[T](a: T = ..., b: list[T] = ...) -> T: ...
-def param_spec[**P](f: Callable[P, None] = ...) -> Callable[P, None]: ...
+def keyword_only[T](*, value: T = ...) -> list[T]: ...  # E: Type variable `T` may go unsolved if a call to `keyword_only` omits argument `value`
+def two_optional[T](a: T = ..., b: list[T] = ...) -> T: ...  # E: Type variable `T` may go unsolved if a call to `two_optional` omits argument `a`
+def param_spec[**P](f: Callable[P, None] = ...) -> Callable[P, None]: ...  # E: Type variable `P` may go unsolved if a call to `param_spec` omits argument `f`
 
 @overload
 def foo(value: int) -> None: ...
 @overload
-def foo[T](value: T = ...) -> T: ...
+def foo[T](value: T = ...) -> T: ...  # E: Type variable `T` may go unsolved if a call to `foo` omits argument `value`
 def foo(value: object = None) -> object: ...
 y = foo()
 reveal_type(y)  # E: revealed type: Unknown
@@ -118,7 +117,6 @@ def not_in_return[T](a: T = ..., b: T = ...) -> None: ...
 );
 
 testcase!(
-    bug = "A return type variable can go unsolved when optional arguments are omitted",
     test_possibly_unsolved_int_var,
     shape_extensions_env(),
     r#"
@@ -127,6 +125,6 @@ from shape_extensions import IntTuple, IntVar
 class Tensor[Shape: IntTuple]:
     shape: Shape
 
-def maybe_batched[BatchSize: IntVar](x: Tensor[[BatchSize]] = ...) -> Tensor[[BatchSize]]: ...
+def maybe_batched[BatchSize: IntVar](x: Tensor[[BatchSize]] = ...) -> Tensor[[BatchSize]]: ...  # E: Type variable `BatchSize` may go unsolved if a call to `maybe_batched` omits argument `x`
 "#,
 );

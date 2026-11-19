@@ -55,7 +55,7 @@ from typing import reveal_type
 def identity[S](f: Callable[[S], S]) -> Callable[[S], S]:
     return f
 
-def generic[T](x: T = ...) -> T:
+def generic[T](x: T = ...) -> T:  # E: Type variable `T` may go unsolved if a call to `generic` omits argument `x`
     ...
 
 result = identity(generic)
@@ -71,7 +71,7 @@ from typing import reveal_type
 
 def deco[**P, R](f: Callable[P, R]) -> Callable[P, R]: ...
 
-def generic[T](x: T = ...) -> T: ...
+def generic[T](x: T = ...) -> T: ...  # E: Type variable `T` may go unsolved if a call to `generic` omits argument `x`
 
 reveal_type(deco(generic))  # E: revealed type: [R](x: R = ...) -> R
 "#,
