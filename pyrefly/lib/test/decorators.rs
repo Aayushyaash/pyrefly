@@ -931,21 +931,20 @@ def f(x: int) -> int:
 
 // https://github.com/pyrefly-org/pyrefly/issues/3741
 testcase!(
-    bug = "Calling `final` on a class has no effect and should be reported",
     test_final_called_as_function,
     r#"
 import typing_extensions
 from typing import Any, Callable, final
 
-MyClass = final(type("MyClass", (), {}))
+MyClass = final(type("MyClass", (), {}))  # E: Calling `final` on a class has no effect
 class SubclassOfMyClass(MyClass): ...
 
 class A: ...
-FinalA = typing_extensions.final(A)
+FinalA = typing_extensions.final(A)  # E: Calling `final` on a class has no effect
 class SubclassOfA(FinalA): ...
 
 def get_class() -> type[A]: ...
-final(get_class())
+final(get_class())  # E: Calling `final` on a class has no effect
 
 # Calling `final` on a function is equivalent to decorating it.
 class B:

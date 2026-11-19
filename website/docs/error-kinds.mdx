@@ -1015,6 +1015,18 @@ def f(x: bool = False) -> int | None:
     return 0 if x else None
 ```
 
+## ineffective-final
+
+Default severity: `warn`
+
+`final` was called directly on a class. Only `@final` used as a decorator marks a class as
+final, so subclasses of the result are not reported.
+
+```python
+from typing import final
+MyClass = final(type("MyClass", (), {}))  # error, calling `final` on a class has no effect
+```
+
 ## instance-var-assign
 
 Default severity: `ignore`

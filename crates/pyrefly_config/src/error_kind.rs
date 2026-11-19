@@ -275,6 +275,9 @@ pub enum ErrorKind {
     /// An inconsistency between a function parameter's type in an overload signature and its
     /// default value in the implementation.
     InconsistentOverloadDefault,
+    /// `final` was called directly on a class, which has no effect.
+    /// Only `@final` used as a decorator marks a class as final.
+    IneffectiveFinal,
     /// Cannot assign to a class-body-declared instance variable via the class (e.g. `C.instance_var = ...`).
     InstanceVarAssign,
     /// Internal Pyrefly error.
@@ -678,6 +681,7 @@ impl ErrorKind {
             ErrorKind::ImplicitlyDefinedAttribute => Severity::Ignore,
             ErrorKind::InactiveCode => Severity::Hint,
             ErrorKind::IncompatibleComparison => Severity::Ignore,
+            ErrorKind::IneffectiveFinal => Severity::Warn,
             ErrorKind::InstanceVarAssign => Severity::Ignore,
             ErrorKind::InvalidAbstractMethod => Severity::Ignore,
             ErrorKind::InvalidCast => Severity::Ignore,

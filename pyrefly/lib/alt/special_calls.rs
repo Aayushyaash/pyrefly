@@ -38,6 +38,7 @@ use crate::alt::shape_extension::is_int_tuple_bound;
 use crate::alt::solve::TypeFormContext;
 use crate::alt::types::class_metadata::ProtocolMetadata;
 use crate::alt::types::decorated_function::Decorator;
+use crate::alt::types::decorated_function::SpecialDecorator;
 use crate::alt::unwrap::HintRef;
 use crate::config::error_kind::ErrorKind;
 use crate::error::collector::ErrorCollector;
@@ -978,11 +979,15 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         res
     }
 
+    /// If this call applies a decorator with known typing effects to a function, returns the
+    /// decorated function. Reports a call that applies `final` to a class, since only `@final`
+    /// used as a decorator marks a class as final.
     pub fn maybe_apply_function_decorator(
         &self,
         callee: &Type,
         args: &[CallArg],
         kws: &[CallKeyword],
+        range: TextRange,
         errors: &ErrorCollector,
     ) -> Option<Type> {
         if let Type::KwCall(call) = callee
@@ -1024,6 +1029,21 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 errors.extend(arg_errors);
                 Some(arg_ty)
             } else {
+                // Only report arguments that are certainly classes. Others, such as `Any` or a
+                // `Callable`, may be functions at runtime.
+                let is_class_object = match &arg_ty {
+                    Type::ClassDef(_) | Type::SpecializedClassDef(_) | Type::Type(_) => true,
+                    Type::ClassType(cls) => cls == self.stdlib.builtins_type(),
+                    _ => false,
+                };
+                if matches!(special_decorator, SpecialDecorator::Final) && is_class_object {
+                    self.error(
+                        errors,
+                        range,
+                        ErrorKind::IneffectiveFinal,
+                        "Calling `final` on a class has no effect; use `@final` as a class decorator instead".to_owned(),
+                    );
+                }
                 None
             }
         } else {
