@@ -555,6 +555,8 @@ pub enum ErrorKind {
     UntypedFunctionDecorator,
     /// Import is missing an expected stubs package
     UntypedImport,
+    /// An installed library has no type stubs or `py.typed` marker, and no known stubs package.
+    UntypedImportNoStubs,
     /// A `collections.namedtuple` declares no field types, so every field has an unknown type.
     UntypedNamedtuple,
     /// Result of a call expression is not used.
@@ -755,6 +757,7 @@ impl ErrorKind {
             ErrorKind::UntypedClassDecorator => Severity::Ignore,
             ErrorKind::UntypedFunctionDecorator => Severity::Ignore,
             ErrorKind::UntypedImport => Severity::Warn,
+            ErrorKind::UntypedImportNoStubs => Severity::Ignore,
             ErrorKind::UntypedNamedtuple => Severity::Ignore,
             ErrorKind::UnusedCallResult => Severity::Ignore,
             ErrorKind::UnusedIgnore => Severity::Ignore,

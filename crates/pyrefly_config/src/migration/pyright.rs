@@ -383,6 +383,10 @@ impl RuleOverrides {
             ErrorKind::MissingSourceForStubs,
         );
         add(self.report_missing_type_stubs, ErrorKind::UntypedImport);
+        add(
+            self.report_missing_type_stubs,
+            ErrorKind::UntypedImportNoStubs,
+        );
         add(self.report_invalid_type_form, ErrorKind::InvalidAnnotation);
         add(self.report_invalid_type_form, ErrorKind::InvalidLiteral);
         add(self.report_invalid_type_form, ErrorKind::InvalidTypeAlias);
@@ -915,8 +919,8 @@ include = ["basedpyright.py"]
             };
             let errors = overrides.to_config().expect("expected error config");
             assert_eq!(errors.severity(ErrorKind::UntypedImport), severity);
-            // Only imports with a recommended stubs package are currently covered.
-            assert_eq!(errors.iter().count(), 1);
+            assert_eq!(errors.severity(ErrorKind::UntypedImportNoStubs), severity);
+            assert_eq!(errors.iter().count(), 2);
         }
     }
 

@@ -239,7 +239,10 @@ fn code_to_kind(errors: HashMap<String, Severity>) -> HashMap<ErrorKind, Severit
             "return" | "return-value" => add(severity, ErrorKind::BadReturn),
             "type-var" => add(severity, ErrorKind::BadSpecialization),
             "import" | "import-not-found" => add(severity, ErrorKind::MissingImport),
-            "import-untyped" => add(severity, ErrorKind::UntypedImport),
+            "import-untyped" => {
+                add(severity, ErrorKind::UntypedImport);
+                add(severity, ErrorKind::UntypedImportNoStubs);
+            }
             "abstract" => add(severity, ErrorKind::BadInstantiation),
             "no-overload-impl" => add(severity, ErrorKind::InvalidOverload),
             "unused-coroutine" | "unused-awaitable" => add(severity, ErrorKind::UnusedCoroutine),
@@ -275,7 +278,10 @@ mod tests {
             let mapped = code_to_kind(HashMap::from([("import-untyped".to_owned(), severity)]));
             assert_eq!(
                 mapped,
-                HashMap::from([(ErrorKind::UntypedImport, severity)])
+                HashMap::from([
+                    (ErrorKind::UntypedImport, severity),
+                    (ErrorKind::UntypedImportNoStubs, severity),
+                ])
             );
         }
     }

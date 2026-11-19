@@ -2704,6 +2704,22 @@ the recommended stubs package being installed. It only applies to libraries foun
 path that do not ship a `py.typed` file; modules found on the search path, such as local stubs in a
 `typings/` directory or your own code, are never reported.
 
+## untyped-import-no-stubs
+
+Default severity: `ignore`
+
+An installed third-party module has no applicable `.pyi` stub file or `py.typed` marker,
+and Pyrefly has no separately distributed stubs package to recommend for it, including modules omitted by
+partial stubs. Enable this rule with
+`untyped-import-no-stubs = "error"` in `[errors]` to identify libraries that need
+custom stubs. Modules on the search path or in editable installations are not reported;
+known stubs packages are covered by `untyped-import`.
+
+```python
+# With pymsteams installed without stubs or py.typed:
+from pymsteams import TeamsWebhookException  # untyped-import-no-stubs
+```
+
 ## untyped-namedtuple
 
 Default severity: `ignore`

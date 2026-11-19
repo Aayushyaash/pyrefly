@@ -170,6 +170,7 @@
     "untyped-class-decorator": ["all"],
     "untyped-function-decorator": ["all"],
     "untyped-import": ["legacy", "default", "strict", "all"],
+    "untyped-import-no-stubs": ["all"],
     "untyped-namedtuple": ["all"],
     "unused-call-result": ["all"],
     "unused-coroutine": ["basic", "legacy", "default", "strict", "all"],

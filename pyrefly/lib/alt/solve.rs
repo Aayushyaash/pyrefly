@@ -6233,10 +6233,18 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         // Submodule lookup.
         let submodule_name = m.append(name);
         let submodule_error = match self.exports.module_exists(submodule_name) {
-            FindingOrError::Finding(_) => {
-                // The statement's `Binding::Module` reports any error for `m` itself, so the
-                // submodule's own error is reported only when `m` has none.
-                if !fallback.is_unreachable && self.exports.module_exists(m).error().is_none() {
+            FindingOrError::Finding(finding) => {
+                // The statement's `Binding::Module` reports the parent's error. Suppress
+                // only the same diagnostic kind, not independent submodule failures.
+                if !fallback.is_unreachable
+                    && let Some(error) = &finding.error
+                    && self
+                        .exports
+                        .module_exists(m)
+                        .error()
+                        .and_then(|parent| parent.kind())
+                        != error.kind()
+                {
                     self.report_module_find_error(submodule_name, &fallback.diagnostic, errors);
                 }
                 return self.binding_to_type_module(
@@ -6326,6 +6334,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             Some(
                 FindError::FallbackSearchPathRelativeImport(..)
                 | FindError::UntypedImport(..)
+                | FindError::UntypedImportNoStubs(..)
                 | FindError::Ignored,
             )
             | None => false,

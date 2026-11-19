@@ -89,7 +89,7 @@ fn resolve_third_party_stub(
     module: ModuleName,
     stub_result: Option<&StubSearchResult>,
     normal_result: Option<&FindResult>,
-    policy: &SitePackagePolicy,
+    policy: &SitePackagePolicy<'_>,
     dir_cache: &DirEntryCache,
 ) -> Option<FindingOrError<ModulePath>> {
     let bundled_stub = policy.typeshed_third_party_stub.as_ref();
@@ -159,8 +159,9 @@ fn combine_normal_and_stub_results(
     normal_result: Option<FindResult>,
     namespaces_found: Option<&mut Vec<PathBuf>>,
     dir_cache: &DirEntryCache,
-    site_package_policy: Option<&SitePackagePolicy>,
+    site_package_policy: Option<&SitePackagePolicy<'_>>,
 ) -> Option<FindingOrError<ModulePath>> {
+    let transparent_stubs = matches!(&stub_result, Some(StubSearchResult::Transparent(_)));
     match (normal_result, stub_result) {
         // A partial stub that resolved only to a bare namespace does not itself
         // provide this module: defer to the runtime package, merging the stub's
@@ -175,14 +176,11 @@ fn combine_normal_and_stub_results(
             }
             None
         }
-        (Some(normal_result), Some(StubSearchResult::Transparent(_))) => {
-            Some(find_result_module_path(normal_result))
-        }
         (None, Some(stub_result)) => Some(
             find_result_module_path(stub_result.into_find_result())
                 .with_error(FindError::MissingSource(module)),
         ),
-        (Some(_), Some(stub_result)) => {
+        (Some(_), Some(stub_result @ StubSearchResult::Provides(_))) => {
             Some(find_result_module_path(stub_result.into_find_result()))
         }
         (Some(FindResult::ImplicitNamespacePackage(namespaces)), _) => {
@@ -191,31 +189,72 @@ fn combine_normal_and_stub_results(
             }
             None
         }
-        (Some(normal_result), None) => {
+        (Some(normal_result), Some(StubSearchResult::Transparent(_)) | None) => {
             let Some(SitePackagePolicy {
-                replace_untyped, ..
+                replace_untyped,
+                editable_roots,
+                ..
             }) = site_package_policy
             else {
                 return Some(find_result_module_path(normal_result));
             };
-            let recommended_stubs = recommended_stubs_package(module);
-            if *replace_untyped || recommended_stubs.is_some() {
-                // We look up `py.typed` only after we've checked that we actually need it because
-                // this does a filesystem walk.
-                let untyped = !package_has_py_typed(module, &normal_result, dir_cache);
-                let hint = if untyped {
-                    recommended_stubs
-                        .map(|package| FindError::UntypedImport(module, package.to_string().into()))
-                } else {
-                    None
-                };
-                if untyped && *replace_untyped {
-                    Some(FindingOrError::from_error_opt(hint))
-                } else {
-                    Some(find_result_module_path(normal_result).with_error_opt(hint))
+            // An incomplete stub still follows the runtime module, even when untyped
+            // imports are replaced, and installing that same stub cannot fill the gap.
+            let replace_untyped = *replace_untyped && !transparent_stubs;
+            let recommended_stubs = if transparent_stubs {
+                None
+            } else {
+                recommended_stubs_package(module)
+            };
+            let has_inline_stubs = match &normal_result {
+                FindResult::SingleFilePyiModule(_) => true,
+                FindResult::RegularPackage(path, _)
+                | FindResult::LegacyNamespacePackage(path, _) => {
+                    path.extension().is_some_and(|extension| extension == "pyi")
+                }
+                _ => false,
+            };
+            let untyped = !package_has_py_typed(module, &normal_result, dir_cache);
+            let hint = if untyped {
+                match recommended_stubs {
+                    Some(package) => {
+                        Some(FindError::UntypedImport(module, package.to_string().into()))
+                    }
+                    None if !has_inline_stubs => {
+                        let is_editable = !editable_roots.is_empty() && {
+                            let (path, extra_parent) = match &normal_result {
+                                FindResult::SingleFilePyiModule(path)
+                                | FindResult::SingleFilePyModule(path)
+                                | FindResult::CompiledModule(path) => (path, 0),
+                                FindResult::RegularPackage(path, _)
+                                | FindResult::LegacyNamespacePackage(path, _) => (path, 1),
+                                FindResult::ImplicitNamespacePackage(_) => {
+                                    unreachable!("namespace results were accumulated earlier")
+                                }
+                            };
+                            // Compare import roots, not path prefixes: a nested venv is not editable.
+                            path.ancestors()
+                                .nth(module.components().len() + extra_parent)
+                                .is_some_and(|root| {
+                                    editable_roots
+                                        .iter()
+                                        .any(|editable| editable.as_path() == root)
+                                })
+                        };
+                        (!is_editable).then_some(FindError::UntypedImportNoStubs(module))
+                    }
+                    None => None,
                 }
             } else {
-                Some(find_result_module_path(normal_result))
+                None
+            };
+            if (untyped && replace_untyped)
+                || (matches!(normal_result, FindResult::CompiledModule(_))
+                    && recommended_stubs.is_none())
+            {
+                Some(FindingOrError::from_error_opt(hint))
+            } else {
+                Some(find_result_module_path(normal_result).with_error_opt(hint))
             }
         }
         (None, _) => None,
@@ -223,7 +262,9 @@ fn combine_normal_and_stub_results(
 }
 
 /// How to treat installed distributions when searching site package roots.
-struct SitePackagePolicy {
+struct SitePackagePolicy<'a> {
+    /// Editable roots exempt from `UntypedImportNoStubs`, not from resolution policies.
+    editable_roots: &'a [PathBuf],
     /// The stub Pyrefly bundles for this module, if it ships one.
     typeshed_third_party_stub: Option<FindingOrError<ModulePath>>,
     /// Whether the user wrote a config file.
@@ -250,7 +291,7 @@ struct FindModuleOptions<'a> {
     /// How to treat installed distributions. Set exactly when `include` is a list
     /// of site package roots: whether a package is typed (PEP 561) is a property of
     /// installed distributions, so modules found elsewhere are never untyped.
-    site_package_policy: Option<SitePackagePolicy>,
+    site_package_policy: Option<SitePackagePolicy<'a>>,
     /// A [`FindResult::ImplicitNamespacePackage`] is appended here rather than
     /// returned, since a higher-priority [`FindResult`] variant may still turn up
     /// in a later search location. It is the caller's responsibility to recognize
@@ -303,7 +344,8 @@ where
         options.dir_cache,
         observer(options.timing),
     );
-    if let Some(policy) = &options.site_package_policy
+    let site_package_policy = options.site_package_policy.as_ref();
+    if let Some(policy) = site_package_policy
         && let Some(result) = resolve_third_party_stub(
             module,
             results.stub_result.as_ref(),
@@ -320,7 +362,9 @@ where
         results.normal_result,
         options.namespaces_found,
         options.dir_cache,
-        options.site_package_policy.as_ref(),
+        // Style-filtered lookups locate implementation/interface files without
+        // applying missing-type-information diagnostics to the normal result.
+        site_package_policy.filter(|_| options.style_filter.is_none()),
     )
 }
 
@@ -779,6 +823,7 @@ pub(crate) fn find_import_with_mode(
         config.site_package_path(),
         FindModuleOptions {
             site_package_policy: Some(SitePackagePolicy {
+                editable_roots: &config.python_environment.interpreter_editable_path,
                 typeshed_third_party_stub: find_third_party_stub(module, style_filter),
                 from_real_config_file,
                 // A style-filtered search asks where a module's implementation file
@@ -2005,7 +2050,10 @@ mod tests {
             // a better option when we find a namespace package
             FindingOrError::new_finding(ModulePath::filesystem(
                 root.join("site_package_path/spp_priority/__init__.py")
-            )),
+            ))
+            .with_error(FindError::UntypedImportNoStubs(ModuleName::from_str(
+                "spp_priority"
+            ))),
         );
         // we would either take the `__init__.py` result or nothing when a `ModuleStyle` is
         // provided than a namespace package
@@ -2018,7 +2066,10 @@ mod tests {
             ),
             FindingOrError::new_finding(ModulePath::filesystem(
                 root.join("site_package_path/spp_priority/d.py")
-            )),
+            ))
+            .with_error(FindError::UntypedImportNoStubs(ModuleName::from_str(
+                "spp_priority.d"
+            ))),
         );
         assert_eq!(
             find_import_with_mode(
@@ -3133,7 +3184,8 @@ mod tests {
             find_import_from(&config, "foo", &root.join("integrations/foo/main.py")),
             FindingOrError::new_finding(ModulePath::filesystem(
                 root.join("site_packages/foo/__init__.py")
-            )),
+            ))
+            .with_error(FindError::UntypedImportNoStubs(ModuleName::from_str("foo"))),
         );
     }
 
@@ -3423,12 +3475,18 @@ mod tests {
                     find("nested_pkg"),
                     FindingOrError::new_finding(ModulePath::filesystem(
                         root.join("editable/.venv/site_packages/nested_pkg/__init__.py")
+                    ))
+                    .with_error(FindError::UntypedImportNoStubs(
+                        ModuleName::from_str("nested_pkg")
                     )),
                 );
                 assert_eq!(
                     find("ordinary_pkg"),
                     FindingOrError::new_finding(ModulePath::filesystem(
                         root.join("editable_extra/ordinary_pkg/__init__.py")
+                    ))
+                    .with_error(FindError::UntypedImportNoStubs(
+                        ModuleName::from_str("ordinary_pkg")
                     )),
                 );
             }
@@ -3463,44 +3521,59 @@ mod tests {
         config.configure();
 
         // https://github.com/pyrefly-org/pyrefly/issues/3444
-        // Even `all` currently omits imports without a recommended stubs package.
-        for (module, relative_path) in [
+        for (module, relative_path, untyped) in [
             (
                 "untyped_package",
                 "site_packages/untyped_package/__init__.py",
+                true,
             ),
             (
                 "namespace.untyped_package",
                 "site_packages/namespace/untyped_package/__init__.py",
+                true,
             ),
-            ("typed_package", "site_packages/typed_package/__init__.py"),
+            (
+                "typed_package",
+                "site_packages/typed_package/__init__.py",
+                false,
+            ),
             (
                 "namespace.typed_package",
                 "site_packages/namespace/typed_package/__init__.py",
+                false,
             ),
             (
                 "stubbed_package",
                 "site_packages/stubbed_package/__init__.pyi",
+                false,
             ),
-            ("first_party", "src/first_party/__init__.py"),
-            ("untyped_standalone", "site_packages/untyped_standalone.py"),
-            ("standalone", "site_packages/standalone.pyi"),
+            ("first_party", "src/first_party/__init__.py", false),
+            (
+                "untyped_standalone",
+                "site_packages/untyped_standalone.py",
+                true,
+            ),
+            ("standalone", "site_packages/standalone.pyi", false),
             (
                 "partial_package.untyped",
                 "site_packages/partial_package/untyped.py",
+                true,
             ),
             (
                 "partial_package.typed",
                 "site_packages/partial_package-stubs/typed.pyi",
+                false,
             ),
         ] {
+            let module = ModuleName::from_str(module);
             assert_eq!(
                 find_import(
                     &config,
-                    ModuleName::from_str(module),
+                    module,
                     FindImportOptions::new(&DirEntryCache::new()),
                 ),
-                FindingOrError::new_finding(ModulePath::filesystem(root.join(relative_path))),
+                FindingOrError::new_finding(ModulePath::filesystem(root.join(relative_path)))
+                    .with_error_opt(untyped.then_some(FindError::UntypedImportNoStubs(module))),
             );
         }
         assert_eq!(
@@ -3509,7 +3582,9 @@ mod tests {
                 ModuleName::from_str("native"),
                 FindImportOptions::new(&DirEntryCache::new()),
             ),
-            FindingOrError::Error(FindError::Ignored),
+            FindingOrError::Error(FindError::UntypedImportNoStubs(ModuleName::from_str(
+                "native"
+            ))),
         );
         assert_eq!(
             find_import(
@@ -3552,7 +3627,9 @@ mod tests {
         // Site packages in untyped_imports_config without a `py.typed` marker become `Any`.
         assert_eq!(
             find("untyped_package"),
-            FindingOrError::Error(FindError::Ignored)
+            FindingOrError::Error(FindError::UntypedImportNoStubs(ModuleName::from_str(
+                "untyped_package"
+            )))
         );
         assert_eq!(
             find("stubbed_package"),
@@ -3561,12 +3638,16 @@ mod tests {
         assert_eq!(find("namespace"), FindingOrError::Error(FindError::Ignored));
         assert_eq!(
             find("namespace.untyped_package"),
-            FindingOrError::Error(FindError::Ignored)
+            FindingOrError::Error(FindError::UntypedImportNoStubs(ModuleName::from_str(
+                "namespace.untyped_package"
+            )))
         );
         // The setting applies only to matching modules.
         assert_eq!(
             find("other_untyped_package"),
-            found(root.join("site_packages/other_untyped_package/__init__.py"))
+            found(root.join("site_packages/other_untyped_package/__init__.py")).with_error(
+                FindError::UntypedImportNoStubs(ModuleName::from_str("other_untyped_package"))
+            )
         );
         // Same, but Pyrefly knows which distribution supplies the missing stubs,
         // so it says so rather than dropping the import silently.
@@ -3616,12 +3697,18 @@ mod tests {
             FindingOrError::new_finding(ModulePath::filesystem(
                 root.join("site_packages/untyped_package/__init__.py")
             ))
+            .with_error(FindError::UntypedImportNoStubs(ModuleName::from_str(
+                "untyped_package"
+            )))
         );
         assert_eq!(
             find("namespace.untyped_package"),
             FindingOrError::new_finding(ModulePath::filesystem(
                 root.join("site_packages/namespace/untyped_package/__init__.py")
             ))
+            .with_error(FindError::UntypedImportNoStubs(ModuleName::from_str(
+                "namespace.untyped_package"
+            )))
         );
         // The recommendation is still attached, but it does not stop resolution.
         assert_eq!(
@@ -4497,7 +4584,10 @@ mod tests {
             ),
             FindingOrError::new_finding(ModulePath::filesystem(
                 root.join("site_packages/partial_runtime/__init__.py")
-            )),
+            ))
+            .with_error(FindError::UntypedImportNoStubs(ModuleName::from_str(
+                "partial_runtime"
+            ))),
         );
     }
 

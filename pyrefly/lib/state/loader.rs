@@ -49,6 +49,8 @@ pub enum FindError {
     /// a message to the user which will allow them to install the stubs for the package.
     /// The string will hold the name of the pip package that we will tell the user to install.
     UntypedImport(ModuleName, Arc<String>),
+    /// An installed library lacks type information, with no known stubs package to recommend.
+    UntypedImportNoStubs(ModuleName),
     /// This is the condition where we are using stubs but we do not have the source files
     MissingSourceForStubs(ModuleName),
 }
@@ -139,6 +141,12 @@ impl FindError {
                 Some(Box::new(|| ErrorContext::ImportNotTyped(*source_package))),
                 vec1![format!("Hint: install the `{stubs_package}` package")],
             ),
+            Self::UntypedImportNoStubs(module) => (
+                None,
+                vec1![format!(
+                    "Module `{module}` has no type stubs or `py.typed` marker"
+                )],
+            ),
         }
     }
 
@@ -151,6 +159,7 @@ impl FindError {
             Self::MissingSource(..) => Some(ErrorKind::MissingSource),
             Self::MissingSourceForStubs(..) => Some(ErrorKind::MissingSourceForStubs),
             Self::UntypedImport(..) => Some(ErrorKind::UntypedImport),
+            Self::UntypedImportNoStubs(..) => Some(ErrorKind::UntypedImportNoStubs),
             Self::Ignored => None,
         }
     }
