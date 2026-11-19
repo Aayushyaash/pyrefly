@@ -2158,10 +2158,18 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     };
                 let (overloads, self_obj) = match Vec1::try_from_vec(accepting) {
                     // If the receiver rules out every overload but one, that overload is called
-                    // like a non-overloaded method.
+                    // like a non-overloaded method. This bypasses `call_overloads`, so its report
+                    // of a deprecated overload is repeated here.
                     Ok(accepting) if accepting.len() == 1 && !rejecting.is_empty() => {
+                        let (overload, _) = accepting.split_off_first();
+                        self.report_deprecated_overload(
+                            &overload.1,
+                            arguments_range,
+                            errors,
+                            context,
+                        );
                         return self.call_infer_with_callee_range(
-                            CallTarget::BoundMethod(obj, accepting.split_off_first().0),
+                            CallTarget::BoundMethod(obj, overload),
                             args,
                             keywords,
                             arguments_range,
