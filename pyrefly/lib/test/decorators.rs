@@ -1270,6 +1270,103 @@ assert_type(BareGeneric.x, int)
 );
 
 testcase!(
+    bug = "Class decorators are not applied",
+    test_class_decorator_behavior_typed_only_union,
+    env_typed_only(),
+    r#"
+from typing import Any, Callable, assert_type
+
+def inferred_factory(value):
+    if value:
+        return lambda cls: cls
+    return value
+
+@inferred_factory(True)
+class Inferred:
+    def method(self) -> int:
+        return 1
+
+assert_type(Inferred, type[Inferred])
+assert_type(Inferred().method(), int)
+value: str = Inferred().method()  # E: `int` is not assignable to `str`
+
+def to_int(cls: type) -> int: ...
+def to_str(cls: type) -> str: ...
+
+def typed_factory(flag: bool) -> Callable[[type], int] | Callable[[type], str]:
+    return to_int if flag else to_str
+
+@typed_factory(True)
+class Typed: ...
+
+assert_type(Typed, type[Typed])
+
+def any_factory(value: Any) -> Callable[[type], int] | Any:
+    return value
+
+@any_factory(to_int)
+class ExplicitAny: ...
+
+assert_type(ExplicitAny, type[ExplicitAny])
+
+class UntypedDecorator:
+    def __call__(self, cls):
+        return cls
+
+def instance_factory(flag: bool) -> Callable[[type], int] | UntypedDecorator:
+    return to_int if flag else UntypedDecorator()
+
+@instance_factory(False)
+class Instance: ...
+
+assert_type(Instance, type[Instance])
+"#,
+);
+
+testcase!(
+    bug = "Class decorators are not applied, and `-> type` ones are not reported",
+    test_class_decorator_type_return_annotations,
+    env_typed_only().enable_untyped_class_decorator_error(),
+    r#"
+from typing import Any, assert_type
+
+def bare(cls: type) -> type:
+    return cls
+
+def bare_union(cls: type) -> type | None:
+    return cls
+
+def explicit(cls: type) -> type[Any]:
+    return cls
+
+def explicit_union(cls: type) -> type[Any] | None:
+    return cls
+
+@bare
+class Bare:
+    x: int = 1
+
+@bare_union
+class BareUnion:
+    x: int = 1
+
+@explicit
+class Explicit:
+    x: int = 1
+
+@explicit_union
+class ExplicitUnion: ...
+
+assert_type(Bare, type[Bare])
+assert_type(Bare().x, int)
+assert_type(BareUnion, type[BareUnion])
+assert_type(BareUnion().x, int)
+assert_type(Explicit, type[Any])
+assert_type(ExplicitUnion, type[ExplicitUnion])
+"#,
+);
+
+testcase!(
     test_class_decorator_dataclass_preserves_class,
     env_typed_only(),
     r#"
