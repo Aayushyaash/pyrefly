@@ -6496,7 +6496,6 @@ def empty():
 );
 
 testcase!(
-    bug = "Redundant runtime class tests are not reported",
     test_unnecessary_runtime_class_condition,
     TestEnv::new().enable_redundant_type_check_warning(),
     r#"
@@ -6522,11 +6521,11 @@ class Dynamic(metaclass=Meta): pass
 def check(value: int, child: Child, cls: type[Child], mixed: int | str,
           gradual: int | Any, unknown: Any, floating: float, dynamic: type[int],
           class_tuple: tuple[type[int], ...]):
-    if isinstance(value, int): pass
-    if not isinstance(value, str): pass
-    if isinstance(child, Base): pass
-    if issubclass(cls, Base): pass
-    if isinstance(mixed, (int, str)): pass
+    if isinstance(value, int): pass  # E: Condition `isinstance(...)` is always `True`
+    if not isinstance(value, str): pass  # E: Condition `not isinstance(...)` is always `True`
+    if isinstance(child, Base): pass  # E: Condition `isinstance(...)` is always `True`
+    if issubclass(cls, Base): pass  # E: Condition `issubclass(...)` is always `True`
+    if isinstance(mixed, (int, str)): pass  # E: Condition `isinstance(...)` is always `True`
     if isinstance(mixed, int): pass
     if isinstance(gradual, int): pass
     if isinstance(unknown, int): pass
@@ -6549,7 +6548,7 @@ def check(value: int, child: Child, cls: type[Child], mixed: int | str,
 
 
 def require_int(value: int) -> None:
-    if not isinstance(value, int):
+    if not isinstance(value, int):  # E: Condition `not isinstance(...)` is always `False`
         raise TypeError
 
 def promoted_classes(float_cls: type[float], complex_cls: type[complex]) -> None:
@@ -6563,15 +6562,14 @@ promoted_classes(int, float)
 );
 
 testcase!(
-    bug = "Class checks are not independently configurable",
     test_redundant_type_check_suppression,
     TestEnv::new().enable_redundant_type_check_warning(),
     r#"
 def check(value: int, cls: type[int]) -> None:
     if isinstance(value, int): pass  # pyrefly: ignore[redundant-type-check]
     if issubclass(cls, int): pass  # pyrefly: ignore[redundant-type-check]
-    if isinstance(value, int): pass  # pyrefly: ignore[redundant-condition]
-    if issubclass(cls, int): pass  # pyrefly: ignore[redundant-condition]
+    if isinstance(value, int): pass  # pyrefly: ignore[redundant-condition]  # E: Condition `isinstance(...)` is always `True` according to the inferred types
+    if issubclass(cls, int): pass  # pyrefly: ignore[redundant-condition]  # E: Condition `issubclass(...)` is always `True` according to the inferred types
     if check: pass  # pyrefly: ignore[redundant-type-check]  # E: Function object `check` used as condition
     assert (value, "message")  # pyrefly: ignore[redundant-type-check]  # E: Assertion is always true because a nonempty tuple is truthy
 "#,

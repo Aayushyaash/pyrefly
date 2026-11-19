@@ -5452,6 +5452,9 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         is_assert: bool,
         errors: &ErrorCollector,
     ) {
+        if !is_assert {
+            self.check_redundant_isinstance(condition, errors);
+        }
         if is_assert
             && let Type::Tuple(Tuple::Concrete(elements)) = condition_type
             && !elements.is_empty()

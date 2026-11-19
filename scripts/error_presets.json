@@ -131,6 +131,7 @@
     "redefinition": ["legacy", "default", "strict", "all"],
     "redundant-cast": ["legacy", "default", "strict", "all"],
     "redundant-condition": ["legacy", "default", "strict", "all"],
+    "redundant-type-check": ["all"],
     "regex": ["legacy", "default", "strict", "all"],
     "reveal-type": ["basic", "legacy", "default", "strict", "all"],
     "string-as-iterable": ["all"],

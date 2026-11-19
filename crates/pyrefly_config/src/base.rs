@@ -644,9 +644,33 @@ mod tests {
 
     #[test]
     fn test_redundant_type_check_configuration() {
-        for severity in ["ignore", "warn", "error"] {
-            let config = format!(r#"{{"redundant-type-check": "{severity}"}}"#);
-            assert!(serde_json::from_str::<ErrorDisplayConfig>(&config).is_err());
+        for (preset, expected) in [
+            (Preset::Off, Severity::Ignore),
+            (Preset::Basic, Severity::Ignore),
+            (Preset::Legacy, Severity::Ignore),
+            (Preset::Default, Severity::Ignore),
+            (Preset::Strict, Severity::Ignore),
+            (Preset::All, Severity::Error),
+        ] {
+            let defaults = preset.apply().errors.unwrap_or_default();
+            assert_eq!(defaults.severity(ErrorKind::RedundantTypeCheck), expected);
+            for (label, severity) in [
+                ("ignore", Severity::Ignore),
+                ("warn", Severity::Warn),
+                ("error", Severity::Error),
+            ] {
+                let raw = format!(r#"{{"redundant-type-check": "{label}"}}"#);
+                let user = serde_json::from_str::<ErrorDisplayConfig>(&raw).unwrap();
+                let mut errors = defaults.clone();
+                errors.merge_user_overrides(&user);
+                assert_eq!(errors.severity(ErrorKind::RedundantTypeCheck), severity);
+                for kind in [
+                    ErrorKind::RedundantCondition,
+                    ErrorKind::UnnecessaryComparison,
+                ] {
+                    assert_eq!(errors.severity(kind), defaults.severity(kind));
+                }
+            }
         }
     }
 

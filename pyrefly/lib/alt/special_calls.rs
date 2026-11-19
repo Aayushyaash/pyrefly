@@ -24,6 +24,7 @@ use pyrefly_util::visit::Visit;
 use pyrefly_util::visit::VisitMut;
 use ruff_python_ast::Expr;
 use ruff_python_ast::Keyword;
+use ruff_python_ast::UnaryOp;
 use ruff_python_ast::name::Name;
 use ruff_text_size::Ranged;
 use ruff_text_size::TextRange;
@@ -593,6 +594,136 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             }
         }
         ret
+    }
+
+    /// Check named nominal values against named classes or flat tuples of names. Structural/gradual
+    /// types and custom metaclasses do not establish runtime membership. Numeric promotion
+    /// also applies to class objects typed as `type[float]` or `type[complex]`, so both
+    /// instance and subclass tests for float/complex ancestry remain unchecked.
+    pub(crate) fn check_redundant_isinstance(&self, condition: &Expr, errors: &ErrorCollector) {
+        if self.module().path().is_interface() {
+            return;
+        }
+        let (test, negated) = match condition {
+            Expr::UnaryOp(x) if x.op == UnaryOp::Not => (&*x.operand, true),
+            _ => (condition, false),
+        };
+        let Expr::Call(call) = test else { return };
+        if !self.has_exactly_two_posargs(&call.arguments) {
+            return;
+        }
+        let [obj @ Expr::Name(_), class_info_expr] = call.arguments.args.as_slice() else {
+            return;
+        };
+        let simple_class_info = match class_info_expr {
+            Expr::Name(_) => true,
+            Expr::Tuple(tuple) => tuple.elts.iter().all(|elt| matches!(elt, Expr::Name(_))),
+            _ => false,
+        };
+        if !matches!(&*call.func, Expr::Name(_)) || !simple_class_info {
+            return;
+        }
+        let swallow = self.error_swallower();
+        let callee = self.expr_infer(&call.func, &swallow);
+        let is_subclass = match callee.to_func_kind() {
+            Some(FunctionKind::IsInstance) => false,
+            Some(FunctionKind::IsSubclass) => true,
+            _ => return,
+        };
+        let mut value = self.expr_infer(obj, &swallow);
+        if is_subclass {
+            let Some(instance) = self.untype_opt(value, call.range(), &swallow) else {
+                return;
+            };
+            value = instance;
+        }
+        let class_info = self.expr_infer(class_info_expr, &swallow);
+        // A variable-length class tuple can be empty, and `type[C]` can denote a subclass.
+        if !matches!(&class_info, Type::ClassDef(_))
+            && !matches!(&class_info, Type::Tuple(Tuple::Concrete(ts))
+                if ts.iter().all(|t| matches!(t, Type::ClassDef(_))))
+        {
+            return;
+        }
+        let ordinary_class = |class: &Class| {
+            let metadata = self.get_metadata_for_class(class);
+            !metadata.is_protocol()
+                && !metadata.is_typed_dict()
+                && !metadata.is_new_type()
+                && !self.extends_any(class)
+                && metadata.metaclass(self.stdlib).class_object()
+                    == self.stdlib.builtins_type().class_object()
+        };
+        let Some(targets) = self
+            .as_class_info(class_info)
+            .into_iter()
+            .map(|ty| match ty {
+                Type::ClassDef(class) if ordinary_class(&class) => Some(class),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()
+        else {
+            return;
+        };
+        let mut outcome = None;
+        for member in value.as_unions() {
+            let Type::ClassType(class) = member else {
+                return;
+            };
+            let class = class.class_object();
+            let mro = self.get_mro_for_class(class);
+            if !ordinary_class(class)
+                || !mro.linearization_complete()
+                || iter::once(class)
+                    .chain(
+                        mro.ancestors(self.stdlib)
+                            .map(|ancestor| ancestor.class_object()),
+                    )
+                    .any(|class| {
+                        matches!(class.known(), Some(KnownClass::Float | KnownClass::Complex))
+                    })
+            {
+                return;
+            }
+            let result = if targets
+                .iter()
+                .any(|target| self.has_superclass(class, target))
+            {
+                true
+            } else if targets.iter().all(|target| {
+                self.is_provably_disjoint(
+                    member,
+                    &self
+                        .heap
+                        .mk_class_type(self.as_class_type_unchecked(target)),
+                )
+            }) {
+                false
+            } else {
+                return;
+            };
+            if outcome.is_some_and(|previous| previous != result) {
+                return;
+            }
+            outcome = Some(result);
+        }
+        if let Some(result) = outcome {
+            self.error(
+                errors,
+                condition.range(),
+                ErrorKind::RedundantTypeCheck,
+                format!(
+                    "Condition `{}{}(...)` is always `{}` according to the inferred types",
+                    if negated { "not " } else { "" },
+                    if is_subclass {
+                        "issubclass"
+                    } else {
+                        "isinstance"
+                    },
+                    if result != negated { "True" } else { "False" }
+                ),
+            );
+        }
     }
 
     pub fn call_isinstance(

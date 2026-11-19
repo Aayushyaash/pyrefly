@@ -299,7 +299,10 @@ pub struct RuleOverrides {
     #[expect(unused)]
     pub report_unnecessary_contains: Option<Severity>,
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
-    #[expect(unused)]
+    #[expect(
+        unused,
+        reason = "redundant-condition also covers non-assert conditions"
+    )]
     pub report_assert_always_true: Option<Severity>,
 
     // Name/variable rules
@@ -540,7 +543,7 @@ impl RuleOverrides {
         // Redundancy/unnecessary code rules
         add(
             self.report_unnecessary_is_instance,
-            ErrorKind::RedundantCondition,
+            ErrorKind::RedundantTypeCheck,
         );
         add(
             self.report_unnecessary_comparison,
@@ -923,7 +926,11 @@ include = ["basedpyright.py"]
             let raw = format!(r#"{{"reportUnnecessaryIsInstance": "{level}"}}"#);
             let config = serde_json::from_str::<PyrightConfig>(&raw)?.convert();
             let errors = config.root.errors.expect("expected a diagnostic override");
-            assert_eq!(errors.severity(ErrorKind::RedundantCondition), severity);
+            assert_eq!(errors.severity(ErrorKind::RedundantTypeCheck), severity);
+            assert_eq!(
+                errors.severity(ErrorKind::RedundantCondition),
+                Severity::Warn
+            );
             assert_eq!(
                 errors.severity(ErrorKind::UnnecessaryComparison),
                 Severity::Warn

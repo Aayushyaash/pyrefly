@@ -3744,7 +3744,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         )
     }
 
-    fn has_exactly_two_posargs(&self, arguments: &Arguments) -> bool {
+    pub(crate) fn has_exactly_two_posargs(&self, arguments: &Arguments) -> bool {
         arguments.keywords.is_empty()
             && arguments.args.len() == 2
             && arguments

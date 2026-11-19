@@ -292,6 +292,7 @@ pub struct TestEnv {
     implicit_any_empty_container_error: bool,
     partially_unknown_type_error: bool,
     string_as_iterable_warning: bool,
+    redundant_type_check_warning: bool,
     unsupported_dynamic_base_error: bool,
     strict_callable_subtyping: bool,
     strict_partial_subtyping: bool,
@@ -379,6 +380,7 @@ impl TestEnv {
             implicit_any_empty_container_error: false,
             partially_unknown_type_error: false,
             string_as_iterable_warning: false,
+            redundant_type_check_warning: false,
             unsupported_dynamic_base_error: false,
             strict_callable_subtyping: false,
             strict_partial_subtyping: false,
@@ -681,7 +683,8 @@ impl TestEnv {
         self
     }
 
-    pub fn enable_redundant_type_check_warning(self) -> Self {
+    pub fn enable_redundant_type_check_warning(mut self) -> Self {
+        self.redundant_type_check_warning = true;
         self
     }
 
@@ -1088,6 +1091,9 @@ impl TestEnv {
         }
         if self.string_as_iterable_warning {
             errors.set_error_severity(ErrorKind::StringAsIterable, Severity::Warn);
+        }
+        if self.redundant_type_check_warning {
+            errors.set_error_severity(ErrorKind::RedundantTypeCheck, Severity::Warn);
         }
         if self.unsupported_dynamic_base_error {
             errors.set_error_severity(ErrorKind::UnsupportedDynamicBase, Severity::Error);

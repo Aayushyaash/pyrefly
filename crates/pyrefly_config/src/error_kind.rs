@@ -456,6 +456,8 @@ pub enum ErrorKind {
     RedundantCast,
     /// Attempting to use value that is equivalent to True or always False in boolean context.
     RedundantCondition,
+    /// An `isinstance` or `issubclass` condition whose result is determined by its types.
+    RedundantTypeCheck,
     /// An invalid regex pattern or regex group access.
     Regex,
     /// Raised by a call to reveal_type().
@@ -724,6 +726,7 @@ impl ErrorKind {
             ErrorKind::PytorchEfficiencyLints => Severity::Ignore,
             ErrorKind::RedundantCast => Severity::Warn,
             ErrorKind::RedundantCondition => Severity::Warn,
+            ErrorKind::RedundantTypeCheck => Severity::Ignore,
             ErrorKind::RevealType => Severity::Info,
             ErrorKind::StringAsIterable => Severity::Ignore,
             ErrorKind::UnannotatedAttribute => Severity::Ignore,

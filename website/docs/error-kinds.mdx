@@ -2100,7 +2100,7 @@ s = typing.cast(str, obj)  # No warning - this is a valid cast
 
 Default severity: `warn`
 
-This error is used to indicate a type that's equivalent to True or False is used as a boolean condition (e.g. an uncalled function)
+This warning flags predictably true or false conditions (e.g. an uncalled function) and nonempty tuple assertions.
 
 ```python
 def f() -> bool:
@@ -2112,6 +2112,20 @@ if f:
 # This is likely a mistake, as it's equivalent to `if True`.
 if "abc":
   ...
+```
+
+## redundant-type-check
+
+Default severity: `ignore`
+
+This warning flags `isinstance` and `issubclass` conditions whose result is determined by the inferred types. Only named callees and values, with named classes or flat tuples of class names, are checked. Gradual types, protocols and custom metaclasses represented in typing metadata, and numeric promotion are excluded; direct assertions are exempt.
+
+Intentional runtime validation can be redundant under annotations. Enable this warning with `pyrefly check --warn=redundant-type-check example.py`; its severity is independent of `redundant-condition`.
+
+```python
+def check(value: int) -> None:
+    if isinstance(value, int):  # redundant-type-check
+        print(value)
 ```
 
 ## regex
