@@ -2967,8 +2967,9 @@ def go(p: Platform) -> None:
         assert!(!facts.contains("lib.src.platform"));
     }
 
-    /// The Glean report names a stub on a search path that overrides a stdlib module after its
-    /// path, like a copy of the module on a later search path.
+    /// A stub on a search path that overrides a stdlib module replaces it for the project, so
+    /// the Glean report names the stub's declarations after the stdlib module. Imports don't find
+    /// the copy of the module on a later search path, so it is named after its path.
     #[test]
     fn glean_report_names_stdlib_override_stubs() {
         let temp = TempDir::new().unwrap();
@@ -3013,8 +3014,12 @@ def go(p: Platform) -> None:
             .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
             .collect();
         assert!(
-            facts.contains("stubs.__future__.annotations\""),
-            "the stub should be named after its path"
+            facts.contains("\"__future__.annotations\""),
+            "the stub should declare `annotations` in `__future__`"
+        );
+        assert!(
+            !facts.contains("stubs.__future__"),
+            "the stub should not be named after its path"
         );
         assert!(
             facts.contains("copies.__future__.annotations\""),
