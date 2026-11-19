@@ -123,6 +123,44 @@ ERROR * Cannot find type stubs for module `django` * (glob)
 [1]
 ```
 
+## Untyped imports without a recommended stubs package
+
+```scrut {output_stream: stdout}
+$ mkdir -p $TMPDIR/unknown_stubs/site_packages/pymsteams && \
+> printf 'class TeamsWebhookException(Exception): ...\n' > $TMPDIR/unknown_stubs/site_packages/pymsteams/__init__.py && \
+> printf 'from pymsteams import TeamsWebhookException\ntry:\n    import pymsteams\nexcept ImportError:\n    pass\n' > $TMPDIR/unknown_stubs/main.py && \
+> printf 'site-packages-path = ["site_packages"]\nskip-interpreter-query = true\n' > $TMPDIR/unknown_stubs/pyrefly.toml && \
+> $PYREFLY check -c $TMPDIR/unknown_stubs/pyrefly.toml $TMPDIR/unknown_stubs/main.py --preset all --ignore unused-import --output-format=min-text
+[0]
+```
+
+The default preset remains quiet, and replacing the import with `Any` can still report missing type information.
+
+```scrut {output_stream: stdout}
+$ $PYREFLY check -c $TMPDIR/unknown_stubs/pyrefly.toml $TMPDIR/unknown_stubs/main.py --preset default --ignore unused-import --output-format=min-text
+[0]
+```
+
+```scrut {output_stream: stdout}
+$ $PYREFLY check -c $TMPDIR/unknown_stubs/pyrefly.toml $TMPDIR/unknown_stubs/main.py --preset all --ignore unused-import --replace-untyped-imports-with-any pymsteams --output-format=min-text
+[0]
+```
+
+## Suppressions for an untyped import with the rule disabled
+
+```scrut {output_stream: stdout}
+$ printf 'import pymsteams  # pyrefly: ignore[untyped-import-no-stubs]\n' > $TMPDIR/unknown_stubs/ignored.py && \
+> $PYREFLY check -c $TMPDIR/unknown_stubs/pyrefly.toml $TMPDIR/unknown_stubs/ignored.py --preset default --error unused-ignore --output-format=min-text
+ERROR * Unused `# pyrefly: ignore` comment for code(s): untyped-import-no-stubs [unused-ignore] (glob)
+[1]
+```
+
+```scrut {output_stream: stdout}
+$ $PYREFLY check -c $TMPDIR/unknown_stubs/pyrefly.toml $TMPDIR/unknown_stubs/ignored.py --preset strict --error unused-ignore --output-format=min-text
+ERROR * Unused `# pyrefly: ignore` comment for code(s): untyped-import-no-stubs [unused-ignore] (glob)
+[1]
+```
+
 ## The `--preset` flag sets the preset and suppresses the upsell
 
 ```scrut {output_stream: stderr}

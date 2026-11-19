@@ -907,6 +907,20 @@ include = ["basedpyright.py"]
     }
 
     #[test]
+    fn test_missing_type_stubs_mapping() {
+        for severity in [Severity::Ignore, Severity::Warn, Severity::Error] {
+            let overrides = RuleOverrides {
+                report_missing_type_stubs: Some(severity),
+                ..Default::default()
+            };
+            let errors = overrides.to_config().expect("expected error config");
+            assert_eq!(errors.severity(ErrorKind::UntypedImport), severity);
+            // Only imports with a recommended stubs package are currently covered.
+            assert_eq!(errors.iter().count(), 1);
+        }
+    }
+
+    #[test]
     fn test_report_private_usage_mapping() -> anyhow::Result<()> {
         let pyr = serde_json::from_str::<PyrightConfig>(r#"{"reportPrivateUsage": "warning"}"#)?;
         let config = pyr.convert();

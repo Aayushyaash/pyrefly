@@ -270,6 +270,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_import_untyped_mapping() {
+        for severity in [Severity::Ignore, Severity::Warn, Severity::Error] {
+            let mapped = code_to_kind(HashMap::from([("import-untyped".to_owned(), severity)]));
+            assert_eq!(
+                mapped,
+                HashMap::from([(ErrorKind::UntypedImport, severity)])
+            );
+        }
+    }
+
+    #[test]
     fn test_error_flags_are_applied_as_typed_overrides() {
         let config = make_error_config(
             Some(MypyErrorConfigFlags {

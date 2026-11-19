@@ -2510,6 +2510,33 @@ if TYPE_CHECKING:
         .unwrap();
 }
 
+// An ignored missing-type-information diagnostic must not hide missing runtime source.
+#[test]
+fn test_untyped_parent_preserves_submodule_diagnostic() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let root = tempdir.path();
+    std::fs::create_dir(root.join("foo")).unwrap();
+    std::fs::create_dir(root.join("foo-stubs")).unwrap();
+    std::fs::write(root.join("foo/__init__.py"), "").unwrap();
+    std::fs::write(root.join("foo-stubs/py.typed"), "partial\n").unwrap();
+    std::fs::write(root.join("foo-stubs/_types.pyi"), "X = int\n").unwrap();
+
+    let mut env = TestEnv::new()
+        .with_site_package_paths(vec![root.to_path_buf()])
+        .enable_missing_source_error();
+    env.add_with_path(
+        "main",
+        "main.py",
+        "from foo import _types  # E: Found stubs for `foo._types`, but no source\n",
+    );
+    let (state, handle_fn) = env.to_state();
+    state
+        .transaction()
+        .get_errors(&[handle_fn("main")])
+        .check_against_expectations()
+        .unwrap();
+}
+
 #[test]
 fn test_missing_source_for_submodule_imported_from_package() {
     // The installed `foo` package has no `_types` module; only `foo-stubs` provides it.

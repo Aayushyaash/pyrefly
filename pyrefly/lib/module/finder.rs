@@ -941,6 +941,7 @@ mod tests {
     use std::path::Path;
     use std::sync::Arc;
 
+    use pyrefly_config::base::Preset;
     use pyrefly_config::config::ConfigSource;
     use pyrefly_config::config::DirectoryRelativeFallbackSearchPathCache;
     use pyrefly_config::environment::environment::PythonEnvironment;
@@ -3320,6 +3321,211 @@ mod tests {
     }
 
     #[test]
+    fn test_editable_imports_without_type_markers() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = tempdir.path();
+        TestPath::setup_test_directory(
+            root,
+            vec![
+                TestPath::dir(
+                    "editable",
+                    vec![
+                        TestPath::dir("local_pkg", vec![TestPath::file("__init__.py")]),
+                        TestPath::dir("django", vec![TestPath::file("__init__.py")]),
+                        TestPath::dir(
+                            ".venv",
+                            vec![TestPath::dir(
+                                "site_packages",
+                                vec![TestPath::dir(
+                                    "nested_pkg",
+                                    vec![TestPath::file("__init__.py")],
+                                )],
+                            )],
+                        ),
+                        TestPath::dir(
+                            "namespace",
+                            vec![TestPath::dir(
+                                "local_pkg",
+                                vec![TestPath::file("__init__.py")],
+                            )],
+                        ),
+                    ],
+                ),
+                TestPath::dir(
+                    "editable_extra",
+                    vec![TestPath::dir(
+                        "ordinary_pkg",
+                        vec![TestPath::file("__init__.py")],
+                    )],
+                ),
+            ],
+        );
+        for configured_root in [false, true] {
+            for replace in [false, true] {
+                let replacements = if replace {
+                    vec!["local_pkg", "namespace.local_pkg", "django"]
+                } else {
+                    vec![]
+                };
+                let mut config = ConfigFile::parse_config(&format!(
+                    "replace-untyped-imports-with-any = {replacements:?}"
+                ))
+                .unwrap();
+                config.source = ConfigSource::File(root.join("pyrefly.toml"));
+                config.interpreters.skip_interpreter_query = true;
+                config.disable_search_path_heuristics = true;
+                config.python_environment.site_package_path = Some(if configured_root {
+                    vec![root.join("editable")]
+                } else {
+                    vec![]
+                });
+                config.python_environment.interpreter_site_package_path = vec![
+                    root.join("editable"),
+                    root.join("editable/.venv/site_packages"),
+                    root.join("editable_extra"),
+                ];
+                config.python_environment.interpreter_editable_path = vec![root.join("editable")];
+                config.configure();
+                let find = |name| {
+                    find_import(
+                        &config,
+                        ModuleName::from_str(name),
+                        FindImportOptions::new(&DirEntryCache::new()),
+                    )
+                };
+                for (name, path) in [
+                    ("local_pkg", "local_pkg/__init__.py"),
+                    ("namespace.local_pkg", "namespace/local_pkg/__init__.py"),
+                ] {
+                    let expected = if replace {
+                        FindingOrError::Error(FindError::Ignored)
+                    } else {
+                        FindingOrError::new_finding(ModulePath::filesystem(
+                            root.join("editable").join(path),
+                        ))
+                    };
+                    assert_eq!(find(name), expected);
+                }
+                let hint = FindError::UntypedImport(
+                    ModuleName::from_str("django"),
+                    "django-stubs".to_owned().into(),
+                );
+                let expected = if replace {
+                    FindingOrError::Error(hint)
+                } else {
+                    FindingOrError::new_finding(ModulePath::filesystem(
+                        root.join("editable/django/__init__.py"),
+                    ))
+                    .with_error(hint)
+                };
+                assert_eq!(find("django"), expected);
+                assert_eq!(
+                    find("nested_pkg"),
+                    FindingOrError::new_finding(ModulePath::filesystem(
+                        root.join("editable/.venv/site_packages/nested_pkg/__init__.py")
+                    )),
+                );
+                assert_eq!(
+                    find("ordinary_pkg"),
+                    FindingOrError::new_finding(ModulePath::filesystem(
+                        root.join("editable_extra/ordinary_pkg/__init__.py")
+                    )),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_untyped_import_without_recommended_stubs() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = tempdir.path();
+        let mut config = untyped_imports_config(root, &[]);
+        TestPath::setup_test_directory(
+            &root.join("site_packages"),
+            vec![
+                TestPath::file("untyped_standalone.py"),
+                TestPath::file("standalone.pyi"),
+                TestPath::file("native.so"),
+                TestPath::dir(
+                    "partial_package",
+                    vec![TestPath::file("untyped.py"), TestPath::file("typed.py")],
+                ),
+                TestPath::dir(
+                    "partial_package-stubs",
+                    vec![
+                        TestPath::file_with_contents("py.typed", "partial\n"),
+                        TestPath::file("typed.pyi"),
+                    ],
+                ),
+            ],
+        );
+        config.root.preset = Some(Preset::All);
+        config.configure();
+
+        // https://github.com/pyrefly-org/pyrefly/issues/3444
+        // Even `all` currently omits imports without a recommended stubs package.
+        for (module, relative_path) in [
+            (
+                "untyped_package",
+                "site_packages/untyped_package/__init__.py",
+            ),
+            (
+                "namespace.untyped_package",
+                "site_packages/namespace/untyped_package/__init__.py",
+            ),
+            ("typed_package", "site_packages/typed_package/__init__.py"),
+            (
+                "namespace.typed_package",
+                "site_packages/namespace/typed_package/__init__.py",
+            ),
+            (
+                "stubbed_package",
+                "site_packages/stubbed_package/__init__.pyi",
+            ),
+            ("first_party", "src/first_party/__init__.py"),
+            ("untyped_standalone", "site_packages/untyped_standalone.py"),
+            ("standalone", "site_packages/standalone.pyi"),
+            (
+                "partial_package.untyped",
+                "site_packages/partial_package/untyped.py",
+            ),
+            (
+                "partial_package.typed",
+                "site_packages/partial_package-stubs/typed.pyi",
+            ),
+        ] {
+            assert_eq!(
+                find_import(
+                    &config,
+                    ModuleName::from_str(module),
+                    FindImportOptions::new(&DirEntryCache::new()),
+                ),
+                FindingOrError::new_finding(ModulePath::filesystem(root.join(relative_path))),
+            );
+        }
+        assert_eq!(
+            find_import(
+                &config,
+                ModuleName::from_str("native"),
+                FindImportOptions::new(&DirEntryCache::new()),
+            ),
+            FindingOrError::Error(FindError::Ignored),
+        );
+        assert_eq!(
+            find_import(
+                &config,
+                ModuleName::from_str("django"),
+                FindImportOptions::new(&DirEntryCache::new()),
+            )
+            .error(),
+            Some(FindError::UntypedImport(
+                ModuleName::from_str("django"),
+                Arc::new("django-stubs".to_owned()),
+            )),
+        );
+    }
+
+    #[test]
     fn test_replace_untyped_imports_with_any() {
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
@@ -4260,6 +4466,38 @@ mod tests {
             FindingOrError::new_finding(ModulePath::filesystem(
                 site_packages.join("foo-stubs/bar.pyi")
             ))
+        );
+    }
+
+    #[test]
+    fn test_partial_stubs_preserve_untyped_runtime_package() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = tempdir.path();
+        let mut config = untyped_imports_config(root, &["partial_runtime"]);
+        TestPath::setup_test_directory(
+            &root.join("site_packages"),
+            vec![
+                TestPath::dir("partial_runtime", vec![TestPath::file("__init__.py")]),
+                TestPath::dir(
+                    "partial_runtime-stubs",
+                    vec![
+                        TestPath::file_with_contents("py.typed", "partial\n"),
+                        TestPath::file("typed.pyi"),
+                    ],
+                ),
+            ],
+        );
+        config.root.preset = Some(Preset::All);
+        config.configure();
+        assert_eq!(
+            find_import(
+                &config,
+                ModuleName::from_str("partial_runtime"),
+                FindImportOptions::new(&DirEntryCache::new()),
+            ),
+            FindingOrError::new_finding(ModulePath::filesystem(
+                root.join("site_packages/partial_runtime/__init__.py")
+            )),
         );
     }
 
