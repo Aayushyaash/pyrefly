@@ -82,6 +82,7 @@ use crate::error::collector::ErrorCollector;
 use crate::error::context::TypeCheckContext;
 use crate::error::context::TypeCheckKind;
 use crate::solver::solver::QuantifiedHandle;
+use crate::solver::solver::SubsetError;
 use crate::types::callable::Callable;
 use crate::types::callable::DefaultValue;
 use crate::types::callable::Param;
@@ -2873,7 +2874,9 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
 
     /// Whether the first parameter of `function` can accept `receiver`. Type parameters on both
     /// sides are replaced with `Any`, so this is false only if no specialization of `function`
-    /// could accept the receiver.
+    /// could accept the receiver. As with the receiver of a non-overloaded call, a protocol class
+    /// may bind its classmethods even though it cannot be passed explicitly where `type[P]` is
+    /// expected.
     pub fn accepts_receiver(&self, function: &Function, receiver: &Type) -> bool {
         let any = self.heap.mk_any_implicit();
         let erase_tparams = |ty: &Type| {
@@ -2881,10 +2884,12 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             ty.subst_mut_fn(&mut |_| Some(any.clone()));
             ty
         };
-        function
-            .signature
-            .get_first_param()
-            .is_none_or(|param| self.is_subset_eq(&erase_tparams(receiver), &erase_tparams(param)))
+        function.signature.get_first_param().is_none_or(|param| {
+            matches!(
+                self.is_subset_eq_with_reason(&erase_tparams(receiver), &erase_tparams(param)),
+                Ok(()) | Err(SubsetError::TypeOfProtocolNeedsConcreteClass(_))
+            )
+        })
     }
 
     /// Drop overloads whose first parameter cannot accept `receiver`, as decided by

@@ -2366,7 +2366,6 @@ P.f()
 );
 
 testcase!(
-    bug = "A protocol class rejects its own overloaded classmethods' annotated `cls`",
     test_call_overloaded_classmethod_on_protocol,
     r#"
 from typing import Protocol, assert_type, overload
@@ -2405,9 +2404,9 @@ class P(Protocol):
         return 0
 class Child(P, Protocol): ...
 assert_type(Child.plain(), int)
-assert_type(Child.make(1), int)  # E: Argument `type[Child]` is not assignable to parameter `cls`
+assert_type(Child.make(1), int)
 # Only the first overload accepts `Child`; `Child` does not implement `Q`.
-assert_type(Child.pick(1), int)  # E: Argument `type[Child]` is not assignable to parameter `cls`
+assert_type(Child.pick(1), int)
 Child.needs_q(1)  # E: Argument `type[Child]` is not assignable to parameter `cls` with type `type[Q]`
     "#,
 );
