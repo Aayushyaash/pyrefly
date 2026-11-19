@@ -2717,3 +2717,27 @@ def f(value: Literal[1, 2]) -> None:
             assert_never(remaining)
 "#,
 );
+
+// https://github.com/facebook/pyrefly/issues/5059
+testcase!(
+    bug = "A subclass of `Foo` can implement the protocol, so the branch is reachable",
+    test_union_against_runtime_protocol,
+    r#"
+from typing import Never, Protocol, assert_type, runtime_checkable
+@runtime_checkable
+class SupportsMethod(Protocol):
+    def method(self) -> None: ...
+class Foo: ...
+def check(arg: Foo) -> None:
+    match arg:
+        case SupportsMethod():
+            pass
+def f(arg: Foo | None) -> None:
+    match arg:
+        case SupportsMethod():  # E: Case pattern can never match subject of type `Foo | None`
+            assert_type(arg, Never)
+def g(arg: Foo | None) -> None:
+    if isinstance(arg, SupportsMethod):
+        assert_type(arg, Never)
+"#,
+);

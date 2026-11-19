@@ -1160,6 +1160,20 @@ def test2(x: str | tuple[int, str] | tuple[int, str, str]) -> str:
 );
 
 testcase!(
+    test_isinstance_protocol_keeps_only_matching_union_members,
+    r#"
+from os import PathLike
+from pathlib import Path
+from typing import IO, assert_type
+def f(path: Path | IO[bytes], name: str | IO[bytes]) -> None:
+    if isinstance(path, PathLike):
+        assert_type(path, Path)
+    if isinstance(name, (str, PathLike)):
+        assert_type(name, str)
+"#,
+);
+
+testcase!(
     test_isinstance_iterable_union_multiple,
     r#"
 from typing import assert_type, Iterable
