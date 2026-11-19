@@ -642,6 +642,14 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn test_redundant_type_check_configuration() {
+        for severity in ["ignore", "warn", "error"] {
+            let config = format!(r#"{{"redundant-type-check": "{severity}"}}"#);
+            assert!(serde_json::from_str::<ErrorDisplayConfig>(&config).is_err());
+        }
+    }
+
     /// Canonical kebab-case name for a preset, matching the serde/clap form
     /// (e.g., `StrictPlus` → `"strict-plus"`).
     fn preset_name(preset: Preset) -> String {

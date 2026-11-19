@@ -681,6 +681,10 @@ impl TestEnv {
         self
     }
 
+    pub fn enable_redundant_type_check_warning(self) -> Self {
+        self
+    }
+
     pub fn enable_unsupported_dynamic_base_error(mut self) -> Self {
         self.unsupported_dynamic_base_error = true;
         self

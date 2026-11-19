@@ -912,4 +912,28 @@ include = ["basedpyright.py"]
         assert_eq!(errors.severity(ErrorKind::NoAccess), Severity::Error);
         Ok(())
     }
+
+    #[test]
+    fn test_unnecessary_is_instance_mapping() -> anyhow::Result<()> {
+        for (level, severity) in [
+            ("none", Severity::Ignore),
+            ("warning", Severity::Warn),
+            ("error", Severity::Error),
+        ] {
+            let raw = format!(r#"{{"reportUnnecessaryIsInstance": "{level}"}}"#);
+            let config = serde_json::from_str::<PyrightConfig>(&raw)?.convert();
+            let errors = config.root.errors.expect("expected a diagnostic override");
+            assert_eq!(errors.severity(ErrorKind::RedundantCondition), severity);
+            assert_eq!(
+                errors.severity(ErrorKind::UnnecessaryComparison),
+                Severity::Warn
+            );
+        }
+        for level in ["none", "error"] {
+            let raw = format!(r#"{{"reportAssertAlwaysTrue": "{level}"}}"#);
+            let config = serde_json::from_str::<PyrightConfig>(&raw)?.convert();
+            assert!(config.root.errors.is_none());
+        }
+        Ok(())
+    }
 }
