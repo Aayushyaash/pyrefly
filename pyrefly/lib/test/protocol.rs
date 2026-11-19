@@ -2366,6 +2366,53 @@ P.f()
 );
 
 testcase!(
+    bug = "A protocol class rejects its own overloaded classmethods' annotated `cls`",
+    test_call_overloaded_classmethod_on_protocol,
+    r#"
+from typing import Protocol, assert_type, overload
+class Q(Protocol):
+    def q(self) -> None: ...
+class P(Protocol):
+    @overload
+    @classmethod
+    def make(cls: type[Child], x: int) -> int: ...
+    @overload
+    @classmethod
+    def make(cls: type[Child], x: str) -> str: ...
+    @classmethod
+    def make(cls, x: int | str) -> int | str:
+        return x
+    @overload
+    @classmethod
+    def pick(cls: type[Child], x: int) -> int: ...
+    @overload
+    @classmethod
+    def pick(cls: type[Q], x: int) -> str: ...
+    @classmethod
+    def pick(cls, x: int) -> int | str:
+        return x
+    @overload
+    @classmethod
+    def needs_q(cls: type[Q], x: int) -> int: ...
+    @overload
+    @classmethod
+    def needs_q(cls: type[Q], x: str) -> str: ...
+    @classmethod
+    def needs_q(cls, x: int | str) -> int | str:
+        return x
+    @classmethod
+    def plain(cls: type[Child]) -> int:
+        return 0
+class Child(P, Protocol): ...
+assert_type(Child.plain(), int)
+assert_type(Child.make(1), int)  # E: Argument `type[Child]` is not assignable to parameter `cls`
+# Only the first overload accepts `Child`; `Child` does not implement `Q`.
+assert_type(Child.pick(1), int)  # E: Argument `type[Child]` is not assignable to parameter `cls`
+Child.needs_q(1)  # E: Argument `type[Child]` is not assignable to parameter `cls` with type `type[Q]`
+    "#,
+);
+
+testcase!(
     test_runtime_checkable_unsafe_overlap,
     r#"
 from typing import Protocol, runtime_checkable
