@@ -2959,6 +2959,80 @@ class C: ...
 );
 
 testcase!(
+    bug = "A dataclass_transform decorator should not be reported as untyped",
+    test_untyped_dataclass_transform_class_decorator_no_error,
+    TestEnv::new().enable_untyped_class_decorator_error(),
+    r#"
+from typing import dataclass_transform
+
+@dataclass_transform()
+def model(cls):
+    return cls
+
+@model  # E: Untyped class decorator may modify `A` in unexpected ways
+class A:
+    x: int
+
+A(x=1)
+"#,
+);
+
+testcase!(
+    test_class_decorator_erasure_with_dataclass_transform_below,
+    r#"
+from typing import Any, assert_type, dataclass_transform
+
+@dataclass_transform()
+def model[T](cls: type[T]) -> type[T]: ...
+
+def erase(cls: type[Any]) -> type[Any]: ...
+
+@erase
+@model
+class A:
+    x: int
+
+assert_type(A, type[Any])
+"#,
+);
+
+testcase!(
+    test_class_decorator_inferred_union_return_no_erasure,
+    r#"
+from typing import Any, assert_type
+
+def maybe(cls: type[Any], flag: bool = True):
+    return cls if flag else None
+
+@maybe
+class A: ...
+
+assert_type(A, type[A])
+"#,
+);
+
+testcase!(
+    test_undefined_class_decorator_no_untyped_error,
+    TestEnv::new().enable_untyped_class_decorator_error(),
+    r#"
+@missing  # E: Could not find name `missing`
+class A: ...
+"#,
+);
+
+testcase!(
+    test_dataclass_call_class_decorator_no_untyped_error,
+    TestEnv::new().enable_untyped_class_decorator_error(),
+    r#"
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class A:
+    x: int
+"#,
+);
+
+testcase!(
     test_unannotated_callable_instance_class_decorator,
     TestEnv::new().enable_untyped_class_decorator_error(),
     r#"
