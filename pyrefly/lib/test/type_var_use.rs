@@ -67,3 +67,66 @@ def rank_one[BatchSize: IntVar](x: Tensor[[BatchSize]]) -> None: ...
 def make_rank_one[BatchSize: IntVar]() -> Tensor[[BatchSize]]: ...
 "#,
 );
+
+// https://github.com/pyrefly-org/pyrefly/issues/3656
+// A function whose body is `...` treats a `...` default as an unknown value, so a type
+// variable that only such parameters mention is solved to `Unknown` when they are omitted.
+testcase!(
+    bug = "A return type variable can go unsolved when optional arguments are omitted",
+    test_possibly_unsolved_type_var,
+    r#"
+from typing import Callable, overload, reveal_type
+
+def omitted[T](value: T = ...) -> T: ...
+x = omitted()
+reveal_type(x)  # E: revealed type: Unknown
+
+def keyword_only[T](*, value: T = ...) -> list[T]: ...
+def two_optional[T](a: T = ..., b: list[T] = ...) -> T: ...
+def param_spec[**P](f: Callable[P, None] = ...) -> Callable[P, None]: ...
+
+@overload
+def foo(value: int) -> None: ...
+@overload
+def foo[T](value: T = ...) -> T: ...
+def foo(value: object = None) -> object: ...
+y = foo()
+reveal_type(y)  # E: revealed type: Unknown
+"#,
+);
+
+testcase!(
+    test_possibly_unsolved_type_var_exemptions,
+    r#"
+from typing import reveal_type
+
+def real_default[T](value: T = 1) -> T: ...
+reveal_type(real_default())  # E: revealed type: int
+
+# With a real body, `...` is the runtime default value.
+def with_body[T](value: T = ...) -> T:
+    return value
+reveal_type(with_body())  # E: revealed type: EllipsisType
+
+def type_param_default[T = int](value: T = ...) -> T: ...
+reveal_type(type_param_default())  # E: revealed type: int
+
+def required_elsewhere[T](a: T, b: T = ...) -> T: ...
+def varargs[T](*args: T) -> T: ...
+def not_in_return[T](a: T = ..., b: T = ...) -> None: ...
+"#,
+);
+
+testcase!(
+    bug = "A return type variable can go unsolved when optional arguments are omitted",
+    test_possibly_unsolved_int_var,
+    shape_extensions_env(),
+    r#"
+from shape_extensions import IntTuple, IntVar
+
+class Tensor[Shape: IntTuple]:
+    shape: Shape
+
+def maybe_batched[BatchSize: IntVar](x: Tensor[[BatchSize]] = ...) -> Tensor[[BatchSize]]: ...
+"#,
+);
