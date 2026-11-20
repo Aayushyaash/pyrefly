@@ -111,6 +111,7 @@ mod uninitialized_instance_variable;
 mod unittest_mock_patch;
 mod unnecessary_comparison;
 mod unnecessary_type_conversion;
+mod unsafe_multiple_inheritance;
 mod untyped_def_behaviors;
 mod unused_call_result;
 pub mod util;
