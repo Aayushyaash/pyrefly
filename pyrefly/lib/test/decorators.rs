@@ -1312,6 +1312,40 @@ assert_type(Data(1).value, int)
 
 // `typed-only` is the default.
 testcase!(
+    test_class_decorator_instance_call_erases_class,
+    env_typed_only().enable_untyped_class_decorator_error(),
+    r#"
+from typing import Any, assert_type
+
+class Erase:
+    def __call__(self, cls: type) -> type[Any]: ...
+
+@Erase()
+class A:
+    x: int = 1
+
+assert_type(A, type[Any])
+"#,
+);
+
+testcase!(
+    test_class_decorator_instance_call_erases_class_ignore,
+    TestEnv::new().with_class_decorator_behavior(ClassDecoratorBehavior::Ignore),
+    r#"
+from typing import Any, assert_type
+
+class Erase:
+    def __call__(self, cls: type) -> type[Any]: ...
+
+@Erase()
+class A:
+    x: int = 1
+
+assert_type(A, type[Any])
+"#,
+);
+
+testcase!(
     test_class_decorator_behavior_typed_only,
     r#"
 from typing import Any, Callable, assert_type

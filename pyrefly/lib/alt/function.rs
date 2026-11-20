@@ -2511,6 +2511,11 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     .is_some_and(|new| new.value.is_function_without_return_annotation())
             }) {
                 self.heap.mk_any_implicit()
+            } else if let Type::ClassType(instance) = decorator
+                && let Some(call) = self.instance_as_dunder_call(instance)
+            {
+                // An instance decorator is checked through its `__call__` method.
+                call
             } else {
                 decorator.clone()
             };
