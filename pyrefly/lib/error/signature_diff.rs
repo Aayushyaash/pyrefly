@@ -355,6 +355,182 @@ class B(A):
         assert_eq!(messages[0], expected);
     }
 
+    /// Bug: the return types are annotated, although a narrower return type is a valid override.
+    /// https://github.com/pyrefly-org/pyrefly/issues/5684
+    #[test]
+    fn test_signature_diff_compatible_return_type() {
+        let messages = error_messages(
+            r#"
+class A:
+    def foo(self, x: object) -> object: ...
+
+class B(A):
+    def foo(self, x: int) -> int: ...
+"#,
+        );
+        assert_eq!(messages.len(), 1, "Expected one error, got {messages:?}");
+        let expected = r#"Class member `B.foo` overrides parent class `A` in an inconsistent manner
+  `B.foo` has type `(x: int) -> int`, which is not assignable to `(x: object) -> object`, the type of `A.foo`
+  Signature mismatch:
+  expected: def foo(self: B, x: object) -> object: ...
+                                ^^^^^      ^^^^^ return type
+                                |
+                                parameters
+  found:    def foo(self: B, x: int) -> int: ...
+                                ^^      ^^ return type
+                                |
+                                parameters"#;
+        assert_eq!(messages[0], expected);
+    }
+
+    /// Bug: the annotations also cover `a` and `c`, although only `b` is incompatible. Widening
+    /// `a` and `c` is a valid override.
+    #[test]
+    fn test_signature_diff_one_of_several_params() {
+        let messages = error_messages(
+            r#"
+class A:
+    def foo(self, a: int, b: int, c: int) -> None: ...
+
+class B(A):
+    def foo(self, a: object, b: str, c: object) -> None: ...
+"#,
+        );
+        assert_eq!(messages.len(), 1, "Expected one error, got {messages:?}");
+        let expected = r#"Class member `B.foo` overrides parent class `A` in an inconsistent manner
+  `B.foo` has type `(a: object, b: str, c: object) -> None`, which is not assignable to `(a: int, b: int, c: int) -> None`, the type of `A.foo`
+  Signature mismatch:
+  expected: def foo(self: B, a: int, b: int, c: int) -> None: ...
+                                ^^^^^^^^^^^^^^^^^^ parameters
+  found:    def foo(self: B, a: object, b: str, c: object) -> None: ...
+                                ^^^^^^^^^^^^^^^^^^^^^^^^ parameters"#;
+        assert_eq!(messages[0], expected);
+    }
+
+    /// The override adds a required keyword-only parameter that callers of `A.foo` do not pass.
+    #[test]
+    fn test_signature_diff_extra_required_keyword() {
+        let messages = error_messages(
+            r#"
+class A:
+    def foo(self, x: int) -> None: ...
+
+class B(A):
+    def foo(self, x: int, *, y: str) -> None: ...
+"#,
+        );
+        assert_eq!(messages.len(), 1, "Expected one error, got {messages:?}");
+        let expected = r#"Class member `B.foo` overrides parent class `A` in an inconsistent manner
+  `B.foo` has type `(x: int, *, y: str) -> None`, which is not assignable to `(x: int) -> None`, the type of `A.foo`
+  Signature mismatch:
+  expected: def foo(self: B, x: int) -> None: ...
+                                   ^ parameters
+  found:    def foo(self: B, x: int, *, y: str) -> None: ...
+                                   ^^^^^^^^^^^ parameters"#;
+        assert_eq!(messages[0], expected);
+    }
+
+    /// The override drops a keyword-only parameter that callers of `A.foo` may pass.
+    #[test]
+    fn test_signature_diff_missing_keyword() {
+        let messages = error_messages(
+            r#"
+class A:
+    def foo(self, *, x: int, y: int) -> None: ...
+
+class B(A):
+    def foo(self, *, x: int) -> None: ...
+"#,
+        );
+        assert_eq!(messages.len(), 1, "Expected one error, got {messages:?}");
+        let expected = r#"Class member `B.foo` overrides parent class `A` in an inconsistent manner
+  `B.foo` has type `(*, x: int) -> None`, which is not assignable to `(*, x: int, y: int) -> None`, the type of `A.foo`
+  Signature mismatch:
+  expected: def foo(self: B, *, x: int, y: int) -> None: ...
+                                      ^^^^^^^^ parameters
+  found:    def foo(self: B, *, x: int) -> None: ...
+                                      ^ parameters"#;
+        assert_eq!(messages[0], expected);
+    }
+
+    /// A generic method, whose displayed signature lists its type parameters before the
+    /// parameters.
+    #[test]
+    fn test_signature_diff_generic_method() {
+        let messages = error_messages(
+            r#"
+class A:
+    def foo[T](self, x: T, y: int) -> T: ...
+
+class B(A):
+    def foo[T](self, x: T, y: str) -> T: ...
+"#,
+        );
+        assert_eq!(messages.len(), 1, "Expected one error, got {messages:?}");
+        let expected = r#"Class member `B.foo` overrides parent class `A` in an inconsistent manner
+  `B.foo` has type `[T](x: T, y: str) -> T`, which is not assignable to `[T](x: T, y: int) -> T`, the type of `A.foo`
+  Signature mismatch:
+  expected: def foo(self: B, x: T, y: int) -> T: ...
+                                      ^^^ parameters
+  found:    def foo(self: B, x: T, y: str) -> T: ...
+                                      ^^^ parameters"#;
+        assert_eq!(messages[0], expected);
+    }
+
+    /// A classmethod, whose `cls` receiver is bound before the comparison.
+    #[test]
+    fn test_signature_diff_classmethod() {
+        let messages = error_messages(
+            r#"
+class A:
+    @classmethod
+    def make(cls, x: int, y: int) -> None: ...
+
+class B(A):
+    @classmethod
+    def make(cls, x: int, y: str) -> None: ...
+"#,
+        );
+        assert_eq!(messages.len(), 1, "Expected one error, got {messages:?}");
+        let expected = r#"Class member `B.make` overrides parent class `A` in an inconsistent manner
+  `B.make` has type `(x: int, y: str) -> None`, which is not assignable to `(x: int, y: int) -> None`, the type of `A.make`
+  Signature mismatch:
+  expected: def make(cls: type[B], x: int, y: int) -> None: ...
+                                              ^^^ parameters
+  found:    def make(cls: type[B], x: int, y: str) -> None: ...
+                                              ^^^ parameters"#;
+        assert_eq!(messages[0], expected);
+    }
+
+    /// A staticmethod, which has no receiver. Bug: the narrower return type is annotated.
+    #[test]
+    fn test_signature_diff_staticmethod() {
+        let messages = error_messages(
+            r#"
+class A:
+    @staticmethod
+    def make(x: int, y: int) -> object: ...
+
+class B(A):
+    @staticmethod
+    def make(x: int, y: str) -> int: ...
+"#,
+        );
+        assert_eq!(messages.len(), 1, "Expected one error, got {messages:?}");
+        let expected = r#"Class member `B.make` overrides parent class `A` in an inconsistent manner
+  `B.make` has type `(x: int, y: str) -> int`, which is not assignable to `(x: int, y: int) -> object`, the type of `A.make`
+  Signature mismatch:
+  expected: def make(x: int, y: int) -> object: ...
+                                ^^^     ^^^^^ return type
+                                |
+                                parameters
+  found:    def make(x: int, y: str) -> int: ...
+                                ^^^     ^^ return type
+                                |
+                                parameters"#;
+        assert_eq!(messages[0], expected);
+    }
+
     /// Overloaded parent method: signature diff should not appear since
     /// overloads have multiple signatures.
     #[test]
