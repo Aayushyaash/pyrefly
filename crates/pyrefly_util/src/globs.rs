@@ -629,7 +629,7 @@ impl Globs {
         // off the walker's built-in filtering and use it only to enumerate files.
         builder.standard_filters(false);
         builder.hidden(false);
-        builder.follow_links(true);
+        builder.follow_links(false);
         builder.types(Self::python_file_types()?);
 
         // `filter_entry` requires a `Fn + Send + Sync + 'static` predicate for both
@@ -2526,47 +2526,6 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn test_dangling_symlink_errors() {
-        fn check(link_name: &str, target: &str) {
-            let tempdir = tempfile::tempdir().unwrap();
-            let root = tempdir.path();
-            TestPath::setup_test_directory(root, vec![TestPath::file("ok.py")]);
-            std::os::unix::fs::symlink(target, root.join(link_name)).unwrap();
-
-            let filtered = FilteredGlobs::new(
-                Globs::new_with_root(root, vec!["**".to_owned()]).unwrap(),
-                Globs::empty(),
-                None,
-                HiddenDirFilter::Disabled,
-            );
-
-            let err = filtered.files_iter().err().unwrap();
-            assert!(
-                format!("{err:#}").contains("Broken symlink when walking project files"),
-                "got: {err:#}",
-            );
-            assert!(format!("{err:#}").contains(link_name), "got: {err:#}");
-            assert!(
-                format!("{err:#}").contains(&format!("{:?}", PathBuf::from(target))),
-                "got: {err:#}",
-            );
-            let err = filtered.files_iter_with_limit(10).err().unwrap();
-            assert!(
-                format!("{err:#}").contains("Broken symlink when walking project files"),
-                "got: {err:#}",
-            );
-            assert!(format!("{err:#}").contains(link_name), "got: {err:#}");
-            assert!(
-                format!("{err:#}").contains(&format!("{:?}", PathBuf::from(target))),
-                "got: {err:#}",
-            );
-        }
-
-        check("broken.py", "missing-target\n");
-    }
-
-    #[cfg(unix)]
-    #[test]
     fn test_dangling_non_python_symlinks_are_skipped() {
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
@@ -2632,6 +2591,53 @@ mod tests {
                 .unwrap()
                 .collect::<Vec<_>>(),
             vec![root.join("ok.py")]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_symlinks_are_not_followed() {
+        let tempdir = tempfile::tempdir().unwrap();
+        TestPath::setup_test_directory(
+            tempdir.path(),
+            vec![
+                TestPath::dir("outside", vec![TestPath::file("sibling.py")]),
+                TestPath::dir(
+                    "proj",
+                    vec![
+                        TestPath::file("ok.py"),
+                        TestPath::dir("sub", vec![TestPath::file("nested.py")]),
+                    ],
+                ),
+            ],
+        );
+        let root = tempdir.path().join("proj");
+        std::os::unix::fs::symlink("..", root.join("up")).unwrap();
+        std::os::unix::fs::symlink("../outside", root.join("ext")).unwrap();
+        std::os::unix::fs::symlink(".", root.join("sub/self")).unwrap();
+        std::os::unix::fs::symlink("ok.py", root.join("linked.py")).unwrap();
+        std::os::unix::fs::symlink("missing.py", root.join("broken.py")).unwrap();
+
+        let filtered = FilteredGlobs::new(
+            Globs::new_with_root(&root, vec!["**".to_owned()]).unwrap(),
+            Globs::empty(),
+            None,
+            HiddenDirFilter::Disabled,
+        );
+
+        let expected = vec![
+            root.join("broken.py"),
+            root.join("linked.py"),
+            root.join("ok.py"),
+            root.join("sub/nested.py"),
+        ];
+        assert_eq!(filtered.files_iter().unwrap().collect::<Vec<_>>(), expected);
+        assert_eq!(
+            filtered
+                .files_iter_with_limit(10)
+                .unwrap()
+                .collect::<Vec<_>>(),
+            expected
         );
     }
 
