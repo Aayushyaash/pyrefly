@@ -42,6 +42,7 @@ use vec1::Vec1;
 
 use crate::alt::answers::AttributeReferenceKind;
 use crate::alt::answers::LookupAnswer;
+use crate::alt::answers::TraceReceiver;
 use crate::alt::answers::TraceSideEffects;
 use crate::alt::answers_solver::AnswersSolver;
 use crate::alt::attr::NoAccessReason;
@@ -59,6 +60,7 @@ use crate::alt::expr::ExprCallee;
 use crate::alt::expr::TypeOrExpr;
 use crate::alt::nn_module_specials::is_nn_sequential;
 use crate::alt::overload::ArgsExpander;
+use crate::alt::overload::OverloadReceiver;
 use crate::alt::unwrap::HintRef;
 use crate::alt::unwrap::MAX_HINT_WIDTH;
 use crate::binding::binding::Key;
@@ -2481,7 +2483,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 let (ty, _callable, overload_table, argmap) = self.call_overloads(
                     overloads,
                     &metadata,
-                    None,
+                    OverloadReceiver::None,
                     args,
                     keywords,
                     arguments_range,
@@ -2511,7 +2513,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     } else {
                         (overloads.into_vec(), Vec::new())
                     };
-                let (overloads, self_obj) = match Vec1::try_from_vec(accepting) {
+                let (overloads, receiver) = match Vec1::try_from_vec(accepting) {
                     // If the receiver rules out every overload but one, that overload is called
                     // like a non-overloaded method. This bypasses `call_overloads`, so its trace
                     // and its report of a deprecated overload are repeated here.
@@ -2522,6 +2524,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                             &overload,
                             arguments_range,
                             true,
+                            TraceReceiver::Present,
                         );
                         self.report_deprecated_overload(
                             &overload.1,
@@ -2543,7 +2546,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                             ctor_targs,
                         );
                     }
-                    Ok(accepting) => (accepting, Some(obj)),
+                    Ok(accepting) => (accepting, OverloadReceiver::Bound(obj)),
                     // No overload accepts the receiver. Report it once, as for a non-overloaded
                     // method, and match the arguments as if `self` were bound.
                     Err(_) => {
@@ -2577,13 +2580,13 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                                 },
                             )
                         });
-                        (unbound, None)
+                        (unbound, OverloadReceiver::Stripped)
                     }
                 };
                 let (ty, _callable, overload_table, argmap) = self.call_overloads(
                     overloads,
                     &meta,
-                    self_obj,
+                    receiver,
                     args,
                     keywords,
                     arguments_range,

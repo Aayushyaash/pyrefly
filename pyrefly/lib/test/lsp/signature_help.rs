@@ -666,21 +666,30 @@ def use(obj: C[bytes]) -> None:
                 .iter()
                 .map(|sig| sig.label.as_str())
                 .collect_vec(),
-            vec!["() -> int", "() -> str"],
+            vec!["(value: int) -> int", "(value: str) -> str"],
             "{call}"
         );
-        // Bug: receiver recovery has already stripped the receiver, so rendering removes value.
-        for signature in &signature.signatures {
+        for (signature, parameter) in signature
+            .signatures
+            .iter()
+            .zip(["value: int", "value: str"])
+        {
             assert_eq!(
                 signature
                     .parameters
                     .as_ref()
                     .expect("parameters available")
-                    .len(),
-                0,
+                    .iter()
+                    .map(|parameter| parameter.label.clone())
+                    .collect_vec(),
+                vec![ParameterInformationLabel::String(parameter.to_owned())],
                 "{call}"
             );
-            assert_eq!(signature.active_parameter, None, "{call}");
+            assert_eq!(
+                signature.active_parameter,
+                Some(ActiveParameter::Int(0)),
+                "{call}"
+            );
         }
     }
 }

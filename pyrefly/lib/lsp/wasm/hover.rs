@@ -1407,7 +1407,7 @@ fn resolve_hovered_type(
                 .and_then(|info| {
                     info.callables
                         .get(info.chosen_overload_index.unwrap_or(0))
-                        .cloned()
+                        .map(|signature| signature.callable.clone())
                 })
                 .unwrap_or_else(|| transaction.coerce_type_to_callable(handle, type_));
         }

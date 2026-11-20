@@ -407,8 +407,14 @@ impl Transaction<'_> {
             ..
         }) = self.get_callables_from_call(handle, position)
         {
-            let callables =
-                self.filter_compatible_overloads(handle, callables, &provided_arg_ranges);
+            let callables = self.filter_compatible_overloads(
+                handle,
+                callables
+                    .into_iter()
+                    .map(|signature| signature.callable)
+                    .collect(),
+                &provided_arg_ranges,
+            );
             for callable in callables {
                 if let Some(params) = Self::normalize_singleton_function_type_into_params(callable)
                 {

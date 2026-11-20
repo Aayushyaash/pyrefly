@@ -28,6 +28,7 @@ use crate::alt::callable::CallKeyword;
 use crate::alt::class::attrs::AttrsInitName;
 use crate::alt::class::class_field::ClassField;
 use crate::alt::class::class_field::DataclassMember;
+use crate::alt::overload::OverloadReceiver;
 use crate::alt::types::class_metadata::ClassMetadata;
 use crate::alt::types::class_metadata::ClassSynthesizedField;
 use crate::alt::types::class_metadata::ClassSynthesizedFields;
@@ -995,7 +996,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 }))
                 .unwrap(),
                 &overload.metadata,
-                None,
+                OverloadReceiver::None,
                 &args.args.map(CallArg::expr_maybe_starred),
                 &args.keywords.map(CallKeyword::new),
                 args.range,

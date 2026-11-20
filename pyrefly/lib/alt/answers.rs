@@ -172,15 +172,35 @@ impl VisitMut<Type> for Traces {
     }
 }
 
+/// Receiver information that a callable signature alone cannot preserve.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TraceReceiver {
+    /// The trace lacks binding information; the callee determines receiver handling.
+    Unknown,
+    /// The implicit receiver is still present in this bound-call signature.
+    Present,
+    /// Recovery has already removed the implicit receiver from the signature.
+    Stripped,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OverloadTrace {
-    callable: Callable,
+    pub(crate) callable: Callable,
     tparams: Option<Arc<TParams>>,
+    pub(crate) receiver: TraceReceiver,
 }
 
 impl OverloadTrace {
-    pub(crate) fn new(callable: Callable, tparams: Option<Arc<TParams>>) -> Self {
-        Self { callable, tparams }
+    pub(crate) fn new(
+        callable: Callable,
+        tparams: Option<Arc<TParams>>,
+        receiver: TraceReceiver,
+    ) -> Self {
+        Self {
+            callable,
+            tparams,
+            receiver,
+        }
     }
 
     fn as_type(&self) -> Type {
@@ -226,11 +246,11 @@ impl OverloadedCallee {
         }
     }
 
-    fn signatures(&self) -> (Vec<Callable>, Option<usize>) {
+    fn signatures(&self) -> (Vec<OverloadTrace>, Option<usize>) {
         match self {
-            Self::Resolved { callable } => (vec![callable.callable.clone()], Some(0)),
+            Self::Resolved { callable } => (vec![callable.clone()], Some(0)),
             Self::Candidates { all, closest, .. } => (
-                all.iter().map(|trace| trace.callable.clone()).collect(),
+                all.clone(),
                 all.iter()
                     .position(|trace| trace.callable == closest.callable),
             ),
@@ -1994,7 +2014,7 @@ impl Answers {
     pub fn get_all_overload_trace(
         &self,
         range: TextRange,
-    ) -> Option<(Vec<Callable>, Option<usize>)> {
+    ) -> Option<(Vec<OverloadTrace>, Option<usize>)> {
         let lock = self.trace.as_ref()?.lock();
         Some(lock.overloaded_callees.get(&range)?.signatures())
     }
@@ -2025,10 +2045,15 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         if self.current().trace.is_some()
             && let Some(callable) = ty.clone().to_callable()
         {
+            let receiver = if matches!(ty, Type::BoundMethod(_)) {
+                TraceReceiver::Present
+            } else {
+                TraceReceiver::Unknown
+            };
             self.trace_state().record_resolved_trace(
                 loc,
                 OverloadedCallee::Resolved {
-                    callable: OverloadTrace::new(callable, None),
+                    callable: OverloadTrace::new(callable, None, receiver),
                 },
             );
         }

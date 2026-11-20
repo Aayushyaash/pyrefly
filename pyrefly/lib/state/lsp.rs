@@ -934,8 +934,8 @@ impl<'a> Transaction<'a> {
             active_argument,
             ..
         } = self.get_callables_from_call(handle, position)?;
-        let callable = callables.get(chosen_overload_index.unwrap_or(0)).cloned()?;
-        let params = Self::normalize_singleton_function_type_into_params(callable)?;
+        let callable = &callables.get(chosen_overload_index.unwrap_or(0))?.callable;
+        let params = Self::normalize_singleton_function_type_into_params(callable.clone())?;
         let arg_index = Self::active_parameter_index(&params, &active_argument)?;
         let ty = params.get(arg_index)?.as_type().clone();
         Some(ty)
