@@ -80,8 +80,17 @@ impl<'a, 'state> AnnotationRenderer<'a, 'state> {
         self.render_parts(&ty.get_annotation_parts(&env))
     }
 
-    /// Returns `None` when a reference cannot be rendered unambiguously.
+    /// Returns `None` for ambiguous references or dependencies on stub-only modules.
     pub(crate) fn render_parts(&self, parts: &[AnnotationPart]) -> Option<RenderedAnnotation> {
+        if parts.iter().any(|part| {
+            matches!(
+                part,
+                AnnotationPart::Reference { module, .. }
+                    if module.as_str().split('.').next() == Some("_typeshed")
+            )
+        }) {
+            return None;
+        }
         let mut direct = Vec::<DirectImport>::new();
         for (module, head) in self
             .tracker

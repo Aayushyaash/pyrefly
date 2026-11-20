@@ -573,7 +573,6 @@ class Child(Base):
     check_result(&result, &[]);
 }
 
-// BUG: Stub-only annotation dependencies are imported at runtime.
 #[test]
 fn stub_only_annotation_dependency() {
     let deps = [(
@@ -589,12 +588,9 @@ class Child(Base):
     def met
 "#;
     let (item, result) = complete(code, &deps);
-    assert!(item.text_edit.is_some());
-    assert!(
-        result.contains("from _typeshed import SupportsWrite\n"),
-        "{result}"
-    );
-    check_result(&result, &deps);
+    assert!(item.text_edit.is_none());
+    assert!(item.additional_text_edits.is_none());
+    assert_eq!(result, code.replace("def met\n", "def method\n"));
 }
 
 // BUG: Later typing imports either supply an unbound decorator or receive its import edit.
