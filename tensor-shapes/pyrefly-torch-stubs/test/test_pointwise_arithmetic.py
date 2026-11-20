@@ -54,16 +54,11 @@ def test_maximum_out_broadcasts_and_reuses_buffer() -> None:
     left = torch.tensor([[1.0], [2.0]])
     right = torch.tensor([[3.0, -1.0, 1.5]])
     out = torch.empty(2, 3)
-    # E: Unexpected keyword
     result = torch.maximum(left, right, out=out)
     assert_shape(result.shape, (2, 3))
     assert result is out
     assert torch.equal(out, torch.tensor([[3.0, 1.0, 1.5], [3.0, 2.0, 2.0]]))
-    assert_shape(
-        # E: Unexpected keyword
-        torch.maximum(left, right, out=None).shape,
-        (2, 3),
-    )
+    assert_shape(torch.maximum(left, right, out=None).shape, (2, 3))
 
 
 def test_lerp_tensor_weight_shapes() -> None:
