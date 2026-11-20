@@ -640,6 +640,56 @@ mod tests {
     use super::*;
     use crate::config::error_kind::ErrorKind;
 
+    // https://github.com/pyrefly-org/pyrefly/issues/5683
+    // Bug: the sandbox ignores python-platform and always checks for Linux.
+    #[test]
+    fn test_python_platform_config_updates() {
+        let mut state = Playground::new(None).unwrap();
+        for (config, expected) in [
+            (Some("python-platform = 'win32'"), "2"),
+            (Some("python-platform = 'linux'"), "2"),
+            (Some("python-platform = 'darwin'"), "2"),
+            (Some("python-platform = 'all'"), "2"),
+            (Some("python-platform = ['linux', 'win32']"), "2"),
+            (Some("python-platform = 'win32'"), "2"),
+            (Some(""), "2"),
+            (Some("python-platform = 'win32'"), "2"),
+            (None, "2"),
+        ] {
+            let mut files = SmallMap::new();
+            files.insert(
+                "sandbox.py".to_owned(),
+                format!(
+                    r#"
+from typing import Literal, assert_type
+import sys
+
+if sys.platform == 'win32':
+    a = 1
+else:
+    a = 2
+
+assert_type(a, Literal[{expected}])
+"#
+                ),
+            );
+            if let Some(config) = config {
+                files.insert("pyrefly.toml".to_owned(), config.to_owned());
+            }
+            assert!(state.update_sandbox_files(files, true).is_some());
+            assert_eq!(
+                state
+                    .get_errors()
+                    .into_iter()
+                    .filter(|error| error.kind != ErrorKind::InactiveCode.to_name())
+                    .map(|error| error.message_header)
+                    .collect::<Vec<_>>(),
+                Vec::<String>::new(),
+                "unexpected diagnostics for {config:?}"
+            );
+        }
+    }
+
     #[test]
     fn test_parameter_name_inlay_hints_can_be_enabled() {
         let mut state = Playground::new(None).unwrap();
