@@ -63,14 +63,13 @@ def make[T: C](cls: type[T], worker: Worker) -> None:
 #                 ^
 "#;
     let report = get_batched_lsp_operations_report(&[("main", code)], get_test_report);
-    // Bug: the constructor-return rewrite also changes callback argument types.
     assert!(
-        report.contains("def callback(self: int) -> int: ..."),
+        report.contains("def callback(self: int) -> None: ..."),
         "{report}"
     );
     let compact_report = report.split_whitespace().collect::<String>();
     assert!(
-        compact_report.contains("defcallback(self:Worker,value:int)->Worker:..."),
+        compact_report.contains("defcallback(self:Worker,value:int)->None:..."),
         "{report}"
     );
 }
