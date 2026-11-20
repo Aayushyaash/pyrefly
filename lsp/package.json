@@ -397,6 +397,12 @@
                     "description": "Enable Pyrefly's Run/Test CodeLens actions for Python files.",
                     "scope": "resource"
                 },
+                "python.pyrefly.referencesCodeLens": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Show best-effort reference counts. Indexing is required. Run/Test lenses use a separate setting.",
+                    "scope": "resource"
+                },
                 "python.pyrefly.streamDiagnostics": {
                     "type": "boolean",
                     "default": true,
