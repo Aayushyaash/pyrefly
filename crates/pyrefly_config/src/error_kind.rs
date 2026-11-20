@@ -537,6 +537,9 @@ pub enum ErrorKind {
     UnreachableMatchCase,
     /// `__all__` is defined but cannot be statically analyzed.
     UnresolvableDunderAll,
+    /// A class inherits from more than one base class that defines `__init__`, so some of those
+    /// `__init__` methods may not get called.
+    UnsafeMultipleInheritance,
     /// Protocols decorated with `@runtime_checkable` can be used in `isinstance` checks
     /// The runtime only checks that an attribute with that name is present, so the
     /// type checker must warn if the types are not compatible.
@@ -753,6 +756,7 @@ impl ErrorKind {
             ErrorKind::UnreachableExceptClause => Severity::Warn,
             ErrorKind::UnreachableMatchCase => Severity::Warn,
             ErrorKind::UnresolvableDunderAll => Severity::Warn,
+            ErrorKind::UnsafeMultipleInheritance => Severity::Ignore,
             ErrorKind::UnsupportedDynamicBase => Severity::Ignore,
             ErrorKind::UntypedClassDecorator => Severity::Ignore,
             ErrorKind::UntypedFunctionDecorator => Severity::Ignore,

@@ -13,11 +13,10 @@ use crate::testcase;
 // semantics: https://github.com/pyrefly-org/pyrefly/issues/3726.
 
 fn env() -> TestEnv {
-    TestEnv::new()
+    TestEnv::new().enable_unsafe_multiple_inheritance_error()
 }
 
 testcase!(
-    bug = "Should report `__init__` methods that may not get called",
     test_unsafe_multiple_inheritance_init,
     env(),
     r#"
@@ -33,15 +32,14 @@ class C: ...
 
 class E(B): ...
 
-class F(A, B): ...
-class G(A, E): ...
+class F(A, B): ...  # E: Multiple inheritance is not allowed because the following base classes have `__init__` methods that may not get called: `B`
+class G(A, E): ...  # E: may not get called: `B`
 class H(A, C): ...
 class I(B, C): ...
 "#,
 );
 
 testcase!(
-    bug = "Should report `__init__` methods that may not get called",
     test_unsafe_multiple_inheritance_reports_every_extra_base,
     env(),
     r#"
@@ -52,12 +50,11 @@ class B:
 class D:
     def __init__(self) -> None: ...
 
-class X(A, B, D): ...
+class X(A, B, D): ...  # E: may not get called: `B`, `D`
 "#,
 );
 
 testcase!(
-    bug = "Should report `__init__` methods that may not get called",
     test_unsafe_multiple_inheritance_cooperative_init_is_not_exempt,
     env(),
     r#"
@@ -69,7 +66,7 @@ class B:
     def __init__(self) -> None:
         super().__init__()
 
-class F(A, B): ...
+class F(A, B): ...  # E: may not get called: `B`
 "#,
 );
 
@@ -156,7 +153,6 @@ class LeftRight(Left, Right): ...
 );
 
 testcase!(
-    bug = "Should report `__init__` methods that may not get called",
     test_unsafe_multiple_inheritance_dataclasses,
     env(),
     r#"
@@ -178,10 +174,10 @@ class L:
     def __init__(self) -> None: ...
 
 class M(J, K): ...
-class N(J, L): ...
+class N(J, L): ...  # E: may not get called: `L`
 
 @dataclass
-class U(A, C): ...
+class U(A, C): ...  # E: may not get called: `A`
 
 @dataclass(init=False)
 class V(A, C): ...
@@ -194,7 +190,7 @@ class InheritsJA(InheritsJ, A): ...
 # Like basedpyright, a dataclass counts as having a generated `__init__` unless it passes
 # `init=False`, even when it defines `__init__` itself.
 @dataclass
-class X(A, C):
+class X(A, C):  # E: may not get called: `A`
     def __init__(self) -> None: ...
 "#,
 );
@@ -202,7 +198,6 @@ class X(A, C):
 // basedpyright reports this pattern for pydantic models combined with `ABC` or a `Protocol`:
 // https://github.com/DetachHead/basedpyright/issues/1817.
 testcase!(
-    bug = "Should report `__init__` methods that may not get called",
     test_unsafe_multiple_inheritance_dataclass_transform,
     env(),
     r#"
@@ -215,13 +210,12 @@ class ModelBase:
 
 class P(Protocol): ...
 
-class X(ModelBase, ABC): ...
-class Y(ModelBase, P): ...
+class X(ModelBase, ABC): ...  # E: may not get called: `ModelBase`
+class Y(ModelBase, P): ...  # E: may not get called: `ModelBase`
 "#,
 );
 
 testcase!(
-    bug = "Should report `__init__` methods that may not get called",
     test_unsafe_multiple_inheritance_ignored_bases,
     env(),
     r#"
@@ -243,7 +237,7 @@ class AG(A, Generic[T]): ...
 class AO(A, object): ...
 
 # Only `Protocol` itself is ignored, not protocol classes.
-class AP(A, P): ...
+class AP(A, P): ...  # E: may not get called: `P`
 
 def f(base: Any) -> None:
     class AAny(A, base): ...
@@ -260,14 +254,13 @@ class A:
     def __init__(self) -> None: ...
 class B:
     def __init__(self) -> None: ...
-class F(A, B): ...
+class F(A, B): ...  # E: may not get called: `B`
 "#,
     );
     env
 }
 
 testcase!(
-    bug = "Should report `__init__` methods that may not get called",
     test_unsafe_multiple_inheritance_stub,
     env_with_stub(),
     r#"

@@ -3788,8 +3788,93 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             self.check_self_in_typed_dict(cls, &class_field_map, errors);
             self.check_invalid_abstract_methods(cls, &class_field_map, errors);
             self.check_ordered_dataclass_inheritance(cls, class_bases, errors);
+            self.check_unsafe_multiple_inheritance(cls, class_bases, errors);
         }
         EmptyAnswer
+    }
+
+    /// Instantiating a class calls only one `__init__` directly, so when more than one base class
+    /// provides an `__init__`, the others may not get called. This follows basedpyright's
+    /// `reportUnsafeMultipleInheritance`: each base provides the first `__init__` that it
+    /// resolves to outside `object`, unless that `__init__` is synthesized or was already
+    /// provided by an earlier base (as in diamond inheritance). A generated dataclass `__init__`
+    /// also counts as the directly called `__init__`, but only when the class itself or a base
+    /// is a dataclass, not when a base merely inherits from one. Like basedpyright, this does not
+    /// consider `__new__`.
+    fn check_unsafe_multiple_inheritance(
+        &self,
+        cls: &Class,
+        class_bases: &ClassBases,
+        errors: &ErrorCollector,
+    ) {
+        // TypedDicts can only inherit from TypedDicts, which cannot define `__init__`.
+        if self.get_metadata_for_class(cls).is_typed_dict() {
+            return;
+        }
+        let bases: Vec<&Class> = class_bases
+            .iter()
+            .map(|base| base.class_object())
+            .filter(|base| !base.is(KnownClass::Object))
+            .collect();
+        if bases.len() < 2 {
+            return;
+        }
+        let has_generated_init = |c: &Class| {
+            self.get_metadata_for_class(c)
+                .dataclass_metadata()
+                .is_some_and(|dm| dm.kws.init && !dm.is_inherited)
+        };
+        let declares_init = |c: &Class| {
+            self.get_class_fields(c)
+                .is_some_and(|f| f.contains(&dunder::INIT))
+        };
+        let mut has_called_init = has_generated_init(cls);
+        let mut providers = SmallSet::new();
+        let mut uncalled = Vec::new();
+        for base in bases {
+            // The first class in the MRO that declares or synthesizes `__init__` defines it for
+            // `base`, and only a declared `__init__` makes that class a provider.
+            let provider = iter::once(base)
+                .chain(
+                    self.get_mro_for_class(base)
+                        .ancestors_no_object()
+                        .iter()
+                        .map(|ancestor| ancestor.class_object()),
+                )
+                .find(|c| {
+                    declares_init(c)
+                        || self
+                            .get_synthesized_field_from_current_class_only(c, &dunder::INIT)
+                            .is_some()
+                })
+                .filter(|c| declares_init(c) && !providers.contains(c));
+            match provider {
+                Some(provider) => {
+                    providers.insert(provider);
+                    if has_called_init {
+                        uncalled.push(provider);
+                    }
+                    has_called_init = true;
+                }
+                None => has_called_init |= has_generated_init(base),
+            }
+        }
+        if uncalled.is_empty() {
+            return;
+        }
+        self.error(
+            errors,
+            cls.range(self),
+            ErrorKind::UnsafeMultipleInheritance,
+            format!(
+                "Multiple inheritance is not allowed because the following base classes have `__init__` methods that may not get called: {}",
+                uncalled
+                    .iter()
+                    .map(|c| format!("`{}`", c.name(self)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        );
     }
 
     /// Stdlib dataclass ordering methods only compare instances of the exact same class, so

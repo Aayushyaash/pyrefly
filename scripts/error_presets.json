@@ -162,6 +162,7 @@
     "unreachable-except-clause": ["legacy", "default", "strict", "all"],
     "unreachable-match-case": ["legacy", "default", "strict", "all"],
     "unresolvable-dunder-all": ["legacy", "default", "strict", "all"],
+    "unsafe-multiple-inheritance": ["all"],
     "unsafe-overlap": ["legacy", "default", "strict", "all"],
     "unsupported": ["legacy", "default", "strict", "all"],
     "unsupported-delete": ["legacy", "default", "strict", "all"],

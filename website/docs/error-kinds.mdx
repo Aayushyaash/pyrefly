@@ -2593,6 +2593,22 @@ __all__ = generate_all()
 # `__all__` could not be statically analyzed [unresolvable-dunder-all]
 ```
 
+## unsafe-multiple-inheritance
+
+Default severity: `ignore`
+
+A class inherits from multiple base classes that define `__init__`. Only one of them is called directly when the class is instantiated, and whether the others are called depends on cooperative `super()` calls and the method resolution order, so there is no way to guarantee that they are called with the correct arguments, or at all. This matches basedpyright's `reportUnsafeMultipleInheritance`.
+
+```python
+class A:
+    def __init__(self) -> None: ...
+
+class B:
+    def __init__(self) -> None: ...
+
+class C(A, B): ...  # unsafe-multiple-inheritance: `B.__init__` may not get called
+```
+
 ## unsafe-overlap
 
 Protocols decorated with `@runtime_checkable` may be used in `isinstance` and `issubclass` checks, but the runtime will only check that all the required attributes are present, without looking at their types.
