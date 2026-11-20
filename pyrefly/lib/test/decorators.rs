@@ -3325,6 +3325,209 @@ def g() -> int:
 "#,
 );
 
+// https://github.com/pyrefly-org/pyrefly/issues/5682
+testcase!(
+    test_any_function_decorator_explicit_return,
+    TestEnv::new().enable_untyped_function_decorator_error(),
+    r#"
+from typing import Any, assert_type
+
+def dec(value: Any) -> Any:
+    return value
+
+@dec
+def fn(value: int) -> None: ...
+
+assert_type(fn, Any)
+"#,
+);
+
+testcase!(
+    test_any_function_decorator_callable_and_factory,
+    TestEnv::new().enable_untyped_function_decorator_error(),
+    r#"
+from typing import Any, Callable, assert_type
+
+class Decorator:
+    def __call__(self, value: Any) -> Any:
+        return value
+
+def factory() -> Callable[[Any], Any]:
+    return Decorator()
+
+@Decorator()
+def f(value: int) -> int: ...
+
+class C:
+    @factory()
+    def method(self, value: int) -> int: ...
+
+assert_type(f, Any)
+assert_type(C().method, Any)
+"#,
+);
+
+testcase!(
+    test_any_function_decorator_stacked_union,
+    TestEnv::new().enable_untyped_function_decorator_error(),
+    r#"
+from typing import Any, assert_type
+
+def typed[T](f: T) -> T:
+    return f
+
+def erase(f: Any) -> Any:
+    return f
+
+def maybe_erase[T](f: T) -> T | Any:
+    return f
+
+@erase
+@maybe_erase
+@typed
+def f() -> int: ...
+
+@typed
+@erase
+def g() -> int: ...
+
+assert_type(f, Any)
+assert_type(g, Any)
+"#,
+);
+
+testcase!(
+    test_any_function_decorator_preserves_callable,
+    TestEnv::new().enable_untyped_function_decorator_error(),
+    r#"
+from typing import Any, Callable, assert_type
+
+def typed(f: Callable[[], int]) -> Callable[[], int]:
+    return f
+
+def wrapping(f: Any) -> Callable[..., Any]:
+    return f
+
+@typed
+def f() -> int: ...
+
+@wrapping
+def g() -> int: ...
+
+assert_type(f, Callable[[], int])
+assert_type(g, Callable[..., Any])
+
+@missing  # E: Could not find name `missing`
+def h() -> int: ...
+"#,
+);
+
+testcase!(
+    test_any_function_decorator_stacked_dynamic,
+    TestEnv::new().enable_untyped_function_decorator_error(),
+    r#"
+from typing import Any
+
+value: Any = lambda f: f
+
+def erase(f: Any) -> Any:
+    return f
+
+def untyped(f):
+    return f
+
+def maybe_erase[T](f: T) -> T | Any:
+    return f
+
+@value  # E: Untyped function decorator obscures the type of function `f`
+@erase
+def f() -> int: ...
+
+@value  # E: Untyped function decorator obscures the type of function `g`
+@untyped  # E: Untyped function decorator obscures the type of function `g`
+def g() -> int: ...
+
+@untyped  # E: Untyped function decorator obscures the type of function `h`
+@maybe_erase
+def h() -> int: ...
+
+@value  # E: Untyped function decorator obscures the type of function `i`
+@value  # E: Untyped function decorator obscures the type of function `i`
+def i() -> int: ...
+"#,
+);
+
+testcase!(
+    test_function_decorator_independent_kinds,
+    TestEnv::new().enable_untyped_function_decorator_error(),
+    r#"
+from typing import Any
+
+value: Any = lambda f: f
+
+def erase(f: Any) -> Any:
+    return f
+
+def untyped(f):
+    return f
+
+@value  # E: Untyped function decorator obscures the type of function `f`
+def f() -> int: ...
+
+@erase
+def g() -> int: ...
+
+@untyped  # E: Untyped function decorator obscures the type of function `h`
+def h() -> int: ...
+"#,
+);
+
+testcase!(
+    test_function_decorator_cross_kind_suppression,
+    TestEnv::new().enable_untyped_function_decorator_error(),
+    r#"
+from typing import Any
+
+value: Any = lambda f: f
+
+def erase(f: Any) -> Any:
+    return f
+
+def untyped(f):
+    return f
+
+@value  # E: Untyped function decorator obscures the type of function `f`
+def f() -> int: ...
+
+@untyped  # E: Untyped function decorator obscures the type of function `g`
+def g() -> int: ...
+
+@erase  # pyrefly: ignore[untyped-function-decorator]
+def h() -> int: ...
+"#,
+);
+
+testcase!(
+    test_any_function_decorator_default_ignore,
+    r#"
+from typing import Any, assert_type
+
+value: Any = lambda f: f
+
+def erase(f: Any) -> Any:
+    return f
+
+@value
+def f() -> int: ...
+
+@erase
+def g() -> int: ...
+
+assert_type(f, Any)
+assert_type(g, Any)
+"#,
+);
+
 // A decorator with no definition after it parses as a nameless function, whose
 // decorators still have to be bound: a walrus in one defines a real name.
 testcase!(
