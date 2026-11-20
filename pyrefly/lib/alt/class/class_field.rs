@@ -81,6 +81,7 @@ use crate::error::collector::ErrorCollector;
 use crate::error::context::ErrorContext;
 use crate::error::context::TypeCheckContext;
 use crate::error::context::TypeCheckKind;
+use crate::error::signature_diff::DisplayedSignature;
 use crate::error::signature_diff::render_signature_diff;
 use crate::solver::solver::SubsetError;
 use crate::types::annotation::Annotation;
@@ -4972,32 +4973,69 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     if let AttrSubsetError::Covariant { got, want, .. }
                     | AttrSubsetError::Invariant { got, want, .. }
                     | AttrSubsetError::Contravariant { got, want, .. } = &*error
+                        && let Ok((got_callable, _)) =
+                            got.toplevel_callable_signatures().exactly_one()
+                        && let Ok((want_callable, _)) =
+                            want.toplevel_callable_signatures().exactly_one()
                     {
-                        let got_sigs = got.toplevel_callable_signatures();
-                        let want_sigs = want.toplevel_callable_signatures();
-                        if got_sigs.exactly_one().is_ok() && want_sigs.exactly_one().is_ok() {
-                            let mut ctx = TypeDisplayContext::new(self, &[got, want]);
-                            ctx.set_lsp_display_mode(LspDisplayMode::SignatureHelp);
-                            let got_sig = ctx.display(got).to_string();
-                            let want_sig = ctx.display(want).to_string();
+                        let mut ctx = TypeDisplayContext::new(self, &[got, want]);
+                        ctx.set_lsp_display_mode(LspDisplayMode::SignatureHelp);
+                        let got_sig = ctx.display(got).to_string();
+                        let want_sig = ctx.display(want).to_string();
 
-                            // Normalize function names so both lines show the
-                            // attribute name, not the original function name
-                            // (e.g., when `method = helper`).
-                            let normalize_name = |sig: &str| -> String {
-                                if let Some(rest) = sig.strip_prefix("def ")
-                                    && let Some(paren) = rest.find('(')
-                                {
-                                    return format!("def {field_name}{}", &rest[paren..]);
-                                }
-                                sig.to_owned()
-                            };
-                            let got_sig = normalize_name(&got_sig);
-                            let want_sig = normalize_name(&want_sig);
-
-                            if let Some(lines) = render_signature_diff(&want_sig, &got_sig) {
-                                diff_lines = lines;
+                        // Normalize function names so both lines show the
+                        // attribute name, not the original function name
+                        // (e.g., when `method = helper`).
+                        let normalize_name = |sig: &str| -> String {
+                            if let Some(rest) = sig.strip_prefix("def ")
+                                && let Some(paren) = rest.find('(')
+                            {
+                                return format!("def {field_name}{}", &rest[paren..]);
                             }
+                            sig.to_owned()
+                        };
+                        let got_sig = normalize_name(&got_sig);
+                        let want_sig = normalize_name(&want_sig);
+
+                        let display_params = |callable: &Callable| -> Vec<String> {
+                            match &callable.params {
+                                Params::List(params) | Params::Partial(params) => params
+                                    .items()
+                                    .iter()
+                                    .map(|param| param.format_for_signature(&ctx))
+                                    .collect(),
+                                Params::ParamSpec(..)
+                                | Params::Ellipsis
+                                | Params::Materialization => Vec::new(),
+                            }
+                        };
+                        let got_params = display_params(got_callable);
+                        let want_params = display_params(want_callable);
+
+                        // The subset error locates the failure in `got` and `want` only if it
+                        // comes from checking that `got` itself is assignable to `want`, rather
+                        // than a synthesized property getter or the reverse direction.
+                        let failure = match &*error {
+                            AttrSubsetError::Covariant {
+                                got_is_property: false,
+                                want_is_property: false,
+                                subset_error: SubsetError::Callable(failure),
+                                ..
+                            } => Some(&**failure),
+                            _ => None,
+                        };
+                        if let Some(lines) = render_signature_diff(
+                            &DisplayedSignature {
+                                text: &want_sig,
+                                params: &want_params,
+                            },
+                            &DisplayedSignature {
+                                text: &got_sig,
+                                params: &got_params,
+                            },
+                            failure,
+                        ) {
+                            diff_lines = lines;
                         }
                     }
 
