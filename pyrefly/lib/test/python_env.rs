@@ -351,6 +351,10 @@ fi
 
 #[cfg(test)]
 mod tests {
+    //! Mock-interpreter self-tests run scripts through Bash to avoid Linux
+    //! ETXTBSY ("Text file busy") on freshly written executables. They check
+    //! the mock's responses, not its shebang or executable permissions.
+
     use std::process::Command;
 
     use super::*;
@@ -415,7 +419,8 @@ mod tests {
         let interpreter_path = venv.create_mock_interpreter();
 
         assert!(interpreter_path.exists());
-        let output = Command::new(&interpreter_path)
+        let output = Command::new("bash")
+            .arg(&interpreter_path)
             .args(["-c", "print(distribution_urls)"])
             .output()
             .unwrap();
@@ -446,7 +451,8 @@ mod tests {
             let venv = TestVenv::synthetic(ws.path().join(dir_name));
             let interpreter_path = venv.create_mock_interpreter();
 
-            let output = Command::new(&interpreter_path)
+            let output = Command::new("bash")
+                .arg(&interpreter_path)
                 .args(["-c", "print(distribution_urls)"])
                 .output()
                 .unwrap();
