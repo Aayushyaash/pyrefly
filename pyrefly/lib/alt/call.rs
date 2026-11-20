@@ -23,9 +23,11 @@ use pyrefly_types::types::CalleeKind;
 use pyrefly_types::types::TArgs;
 use pyrefly_types::types::TParams;
 use pyrefly_util::display::DisplayWithCtx;
+use pyrefly_util::owner::Owner;
 use pyrefly_util::prelude::SliceExt;
 use pyrefly_util::prelude::VecExt;
 use pyrefly_util::visit::Visit;
+use pyrefly_util::visit::VisitMut;
 use ruff_python_ast::Arguments;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprCall;
@@ -40,6 +42,7 @@ use vec1::Vec1;
 
 use crate::alt::answers::AttributeReferenceKind;
 use crate::alt::answers::LookupAnswer;
+use crate::alt::answers::TraceSideEffects;
 use crate::alt::answers_solver::AnswersSolver;
 use crate::alt::attr::NoAccessReason;
 use crate::alt::callable::ArgMap;
@@ -55,18 +58,21 @@ use crate::alt::class::dataclass::ReplaceKind;
 use crate::alt::expr::ExprCallee;
 use crate::alt::expr::TypeOrExpr;
 use crate::alt::nn_module_specials::is_nn_sequential;
+use crate::alt::overload::ArgsExpander;
 use crate::alt::unwrap::HintRef;
 use crate::alt::unwrap::MAX_HINT_WIDTH;
 use crate::binding::binding::Key;
 use crate::binding::binding::LambdaParamId;
 use crate::config::error_kind::ErrorKind;
 use crate::error::collector::ErrorCollector;
+use crate::error::collector::ModuleDiagnostics;
 use crate::error::context::ErrorContext;
 use crate::error::context::TypeCheckContext;
 use crate::error::context::TypeCheckKind;
 use crate::solver::solver::OverloadTable;
 use crate::solver::solver::QuantifiedHandle;
 use crate::solver::solver::TypeVarSpecializationError;
+use crate::solver::solver::VarSnapshot;
 use crate::types::callable::Callable;
 use crate::types::callable::ParamList;
 use crate::types::callable::Params;
@@ -88,6 +94,7 @@ use crate::types::types::Forallable;
 use crate::types::types::Overload;
 use crate::types::types::OverloadType;
 use crate::types::types::Type;
+use crate::types::types::Var;
 
 pub enum CallStyle<'a> {
     Method(&'a Name),
@@ -189,7 +196,7 @@ struct AcceptedIntersectionCall {
     arg_errors: ErrorCollector,
     call_errors: ErrorCollector,
     return_errors: ErrorCollector,
-    lambda_types: Vec<(LambdaParamId, Option<Type>)>,
+    ctor_targs: Option<TArgs>,
 }
 
 #[derive(Debug, Clone)]
@@ -287,6 +294,19 @@ struct ConstructedInstance {
 }
 
 impl ConstructedInstance {
+    fn diagnostics(&self) -> [&ErrorCollector; 3] {
+        [&self.errors, &self.arg_errors, &self.return_errors]
+    }
+
+    /// A hint match requires successful specialization and argument checks.
+    fn is_match(&self) -> bool {
+        self.matched_hint
+            && self.specialization_errors.is_none()
+            && !self.errors.has_hard()
+            && !self.arg_errors.has_hard()
+            && !self.return_errors.has_hard()
+    }
+
     fn take<Ans: LookupAnswer>(
         self,
         arguments_range: TextRange,
@@ -311,7 +331,206 @@ impl ConstructedInstance {
     }
 }
 
+/// The call-local roots and contextual expressions shared by speculative attempts.
+#[derive(Clone)]
+struct CallSpeculation {
+    roots: Vec<Type>,
+    lambda_params: Vec<LambdaParamId>,
+    contextual_ranges: Vec<TextRange>,
+}
+
+impl CallSpeculation {
+    fn new<Ans: LookupAnswer>(
+        answers: &AnswersSolver<Ans>,
+        args: &[CallArg],
+        keywords: &[CallKeyword],
+        roots: impl IntoIterator<Item = Type>,
+    ) -> Self {
+        let mut result = Self {
+            roots: roots.into_iter().collect(),
+            lambda_params: Vec::new(),
+            contextual_ranges: Vec::new(),
+        };
+        result.roots.extend(answers.active_first_use_types());
+        for value in argument_values(args, keywords) {
+            match value.as_type_or_expr() {
+                TypeOrExpr::Type(ty, _) => result.roots.push(ty.clone()),
+                TypeOrExpr::Expr(expr) => result.add_expression(answers, expr),
+            }
+        }
+        result
+    }
+
+    fn add_expression<Ans: LookupAnswer>(&mut self, answers: &AnswersSolver<Ans>, expr: &Expr) {
+        match expr {
+            Expr::Lambda(lambda) => {
+                self.contextual_ranges.push(expr.range());
+                if let Some(parameters) = &lambda.parameters {
+                    self.lambda_params.extend(
+                        parameters
+                            .iter_non_variadic_params()
+                            .map(|param| answers.bindings().get_lambda_param_id(param.name())),
+                    );
+                    for param in parameters.vararg.iter().chain(parameters.kwarg.iter()) {
+                        self.lambda_params
+                            .push(answers.bindings().get_lambda_param_id(&param.name));
+                    }
+                }
+            }
+            Expr::ListComp(_) | Expr::SetComp(_) | Expr::DictComp(_) | Expr::Generator(_) => {
+                self.contextual_ranges.push(expr.range());
+            }
+            _ => {}
+        }
+        expr.recurse(&mut |child: &Expr| self.add_expression(answers, child));
+    }
+}
+
+fn argument_values<'a, 'b>(
+    args: &'a [CallArg<'b>],
+    keywords: &'a [CallKeyword<'b>],
+) -> impl Iterator<Item = CallValue<'b>> + 'a {
+    args.iter()
+        .map(|arg| match arg {
+            CallArg::Arg(value) | CallArg::Star(value, _) => *value,
+        })
+        .chain(keywords.iter().map(|keyword| keyword.value))
+}
+
+/// Caller-owned state is restored after every probe and published once after selection.
+struct SpeculationState {
+    vars: VarSnapshot,
+    lambda_types: Vec<(LambdaParamId, Option<Type>)>,
+}
+
+impl SpeculationState {
+    fn capture<Ans: LookupAnswer>(answers: &AnswersSolver<Ans>, call: &CallSpeculation) -> Self {
+        let lambda_types = answers.snapshot_lambda_param_types(&call.lambda_params);
+        let mut roots = call.roots.iter().collect::<Vec<_>>();
+        roots.extend(lambda_types.iter().filter_map(|(_, ty)| ty.as_ref()));
+        Self {
+            vars: answers.solver().snapshot_reachable_vars(&roots),
+            lambda_types,
+        }
+    }
+
+    fn restore<Ans: LookupAnswer>(self, answers: &AnswersSolver<Ans>) {
+        answers.solver().restore_vars(self.vars);
+        answers.restore_lambda_param_types(&self.lambda_types);
+    }
+}
+
+/// A closed result and its effects remain private until the accepted group is committed.
+struct Speculation<T> {
+    value: T,
+    state: SpeculationState,
+    inferred: Vec<(Var, Type)>,
+    traces: Option<TraceSideEffects>,
+}
+
+/// Select a complete match, or preserve the original contextual fallback preference.
+fn select_constructor_hint(
+    args: &[CallArg],
+    keywords: &[CallKeyword],
+    hints: &[Type],
+    attempt: &impl Fn(&[CallArg], &[CallKeyword], Option<&Type>) -> Speculation<ConstructedInstance>,
+) -> Speculation<ConstructedInstance> {
+    let mut fallback = None;
+    for hint in hints {
+        let result = attempt(args, keywords, Some(hint));
+        if result.value.is_match() {
+            return result;
+        }
+        if !result.value.errors.has_hard() && fallback.is_none() {
+            fallback = Some(result);
+        }
+    }
+    fallback.unwrap_or_else(|| attempt(args, keywords, None))
+}
+
+impl<T> Speculation<T> {
+    fn commit<Ans: LookupAnswer>(self, answers: &AnswersSolver<Ans>) -> T {
+        self.state.restore(answers);
+        if let Some(traces) = self.traces {
+            answers.trace_state().replay_traces(&traces);
+        }
+        self.value
+    }
+}
+
 impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
+    /// Materialize traces before restoring caller-owned inference state.
+    /// `f` must materialize result types that depend on the attempt's variable assignments.
+    fn speculate<T>(&self, call: &CallSpeculation, f: impl FnOnce() -> T) -> Speculation<T> {
+        let before = SpeculationState::capture(self, call);
+        let _lambda_context = self.enter_lambda_binding_context([]);
+        let (value, mut traces) = self.trace_state().defer_traces(f);
+        let inferred = self.solver().inferred_bounds(&before.vars, self);
+        let mut state = SpeculationState::capture(self, call);
+        for (_, ty) in &mut state.lambda_types {
+            if let Some(ty) = ty {
+                *ty = self.solver().expand(ty.clone(), self);
+            }
+        }
+        if let Some(traces) = &mut traces {
+            traces.recurse_mut(&mut |ty| self.solver().expand_mut(ty, self));
+        }
+        before.restore(self);
+        Speculation {
+            value,
+            state,
+            inferred,
+            traces,
+        }
+    }
+
+    /// Publish one validated caller state and merge the accepted contextual effects once.
+    fn merge_accepted<T>(
+        &self,
+        call: &CallSpeculation,
+        attempts: Vec<Speculation<T>>,
+        diagnostics: impl Fn(&T) -> [&ErrorCollector; 3],
+    ) -> Vec<T> {
+        let mut attempts = attempts.into_iter();
+        let mut first = attempts.next().expect("an accepted group is nonempty");
+        let mut lambda_types = SmallMap::new();
+        let mut snapshots = Vec::new();
+        let mut values = Vec::new();
+        let mut traces = TraceSideEffects::default();
+        let mut add_effects = |attempt: &mut Speculation<T>| {
+            for (id, ty) in &attempt.state.lambda_types {
+                let types = lambda_types.entry(*id).or_insert_with(Vec::new);
+                types.extend(ty.iter().cloned());
+            }
+            snapshots.push(diagnostics(&attempt.value).map(ErrorCollector::take));
+            if let Some(effects) = attempt.traces.take() {
+                traces.merge_alternatives(effects, |types| self.unions(types));
+            }
+        };
+        add_effects(&mut first);
+        for mut attempt in attempts {
+            add_effects(&mut attempt);
+            values.push(attempt.value);
+        }
+        first.state.lambda_types = lambda_types
+            .into_iter()
+            .map(|(id, types)| (id, (!types.is_empty()).then(|| self.unions(types))))
+            .collect();
+        first.traces = Some(traces);
+        for (role, destination) in diagnostics(&first.value).into_iter().enumerate() {
+            ModuleDiagnostics::replay_contexts(
+                &snapshots
+                    .iter()
+                    .map(|snapshot| snapshot[role].clone())
+                    .collect::<Vec<_>>(),
+                destination,
+                &call.contextual_ranges,
+            );
+        }
+        values.insert(0, first.commit(self));
+        values
+    }
+
     fn error_call_target(
         &self,
         errors: &ErrorCollector,
@@ -1215,43 +1434,170 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         }
     }
 
-    /// Selects a constructor outcome without publishing its diagnostics.
-    /// Prefers the first hint match without hard call errors or specialization failures.
-    /// Otherwise keeps the first outcome without hard call errors, or constructs without a hint.
+    /// Selects a complete match without publishing rejected inference effects or diagnostics.
+    /// Each argument expansion must match some hint member; otherwise retain the original fallback.
     /// Hints wider than `MAX_HINT_WIDTH` are ignored.
     fn construct_with_hint(
         &self,
+        targs: &TArgs,
+        args: &[CallArg],
+        keywords: &[CallKeyword],
         hint: Option<HintRef>,
-        construct: impl Fn(Option<&Type>) -> ConstructedInstance,
+        construct: impl Fn(
+            &AnswersSolver<Ans>,
+            &[CallArg],
+            &[CallKeyword],
+            Option<&Type>,
+        ) -> ConstructedInstance,
     ) -> ConstructedInstance {
-        if let Some(hint) = hint
-            && let hints = hint.types()
-            && hints.len() <= MAX_HINT_WIDTH
-        {
-            let mut ret_no_match_hint = None;
-            for member_hint in hints.iter() {
-                let ret = construct(Some(member_hint));
-                if ret.errors.has_hard() {
-                    continue;
-                }
-                if ret.matched_hint && ret.specialization_errors.is_none() {
-                    // Take the first successful match. We require the result to be assignable to the
-                    // hint so that, in a case like `x: list[X] | None = [XChild()]`, we choose the
-                    // `list[X]` branch with contextually typed results.
-                    return ret;
-                }
-                if ret_no_match_hint.is_none() {
-                    ret_no_match_hint = Some(ret);
-                }
+        let Some(hint) = hint.filter(|hint| hint.types().len() <= MAX_HINT_WIDTH) else {
+            return construct(self, args, keywords, None);
+        };
+        if let [hint] = hint.types() {
+            let result = construct(self, args, keywords, Some(hint));
+            return if !result.errors.has_hard() {
+                result
+            } else {
+                construct(self, args, keywords, None)
+            };
+        }
+        // A probe checks nested expressions normally, but does not start another search.
+        // This bounds recursive speculation without sharing fuel between sibling calls.
+        if self.in_constructor_probe() {
+            return construct(self, args, keywords, None);
+        }
+        let call = CallSpeculation::new(
+            self,
+            args,
+            keywords,
+            targs.as_slice().iter().chain(hint.types()).cloned(),
+        );
+        let solver = self.for_constructor_probe();
+        let attempt = |args: &[CallArg], keywords: &[CallKeyword], hint: Option<&Type>| {
+            solver.speculate(&call, || {
+                let mut result = construct(&solver, args, keywords, hint);
+                result.ty = self.solver().expand(result.ty, self);
+                result
+            })
+        };
+        let unexpanded = select_constructor_hint(args, keywords, hint.types(), &attempt);
+        if unexpanded.value.is_match() {
+            return unexpanded.commit(self);
+        }
+        solver
+            .distribute_constructor(&call, args, keywords, hint.types(), &construct)
+            .unwrap_or_else(|| unexpanded.commit(self))
+    }
+
+    /// Each expanded input must have a complete hint match before any effect is published.
+    fn distribute_constructor(
+        &self,
+        call: &CallSpeculation,
+        args: &[CallArg],
+        keywords: &[CallKeyword],
+        hints: &[Type],
+        construct: &impl Fn(
+            &AnswersSolver<Ans>,
+            &[CallArg],
+            &[CallKeyword],
+            Option<&Type>,
+        ) -> ConstructedInstance,
+    ) -> Option<ConstructedInstance> {
+        let mut expander = ArgsExpander::new(args.to_vec(), keywords.to_vec(), self);
+        let owner = Owner::new();
+        let expansion_errors = self.error_collector();
+        let mut expansion_traces = TraceSideEffects::default();
+        loop {
+            let expansion = self.speculate(call, || expander.expand(&expansion_errors, &owner));
+            if let Some(traces) = expansion.traces {
+                expansion_traces.merge_alternatives(traces, |types| self.unions(types));
             }
-            if let Some(ret) = ret_no_match_hint {
-                // Even if none of the results were assignable to their hints, we still keep the
-                // first contextually typed result if it only produced specialization errors.
-                return ret;
+            let arg_lists = expansion.value?;
+            if expansion_errors.has_hard() {
+                return None;
+            }
+            let mut batch_call = call.clone();
+            for (args, keywords) in &arg_lists {
+                batch_call
+                    .roots
+                    .extend(argument_values(args, keywords).filter_map(|value| {
+                        match value.as_type_or_expr() {
+                            TypeOrExpr::Type(ty, _) => Some(ty.clone()),
+                            TypeOrExpr::Expr(_) => None,
+                        }
+                    }));
+            }
+            let batch = self.speculate(&batch_call, || {
+                let mut probes =
+                    self.match_constructor_batch(&batch_call, &arg_lists, hints, construct)?;
+                let first = probes.first_mut().expect("argument expansion is nonempty");
+                expansion_errors.take().replay(&first.value.arg_errors);
+                first
+                    .traces
+                    .get_or_insert_default()
+                    .merge_alternatives(expansion_traces.clone(), |types| self.unions(types));
+                let mut outcomes = self
+                    .merge_accepted(&batch_call, probes, ConstructedInstance::diagnostics)
+                    .into_iter();
+                let mut result = outcomes.next().expect("argument expansion is nonempty");
+                result.ty = self.unions(
+                    iter::once(result.ty)
+                        .chain(outcomes.map(|outcome| outcome.ty))
+                        .collect(),
+                );
+                Some(result)
+            });
+            if batch.value.is_some() {
+                return batch.commit(self);
             }
         }
-        // If the hint is too wide or always produces non-specialization errors, don't use it.
-        construct(None)
+    }
+
+    /// Join caller evidence, then validate all alternatives against that common caller state.
+    fn match_constructor_batch(
+        &self,
+        call: &CallSpeculation,
+        arg_lists: &[(Vec<CallArg>, Vec<CallKeyword>)],
+        hints: &[Type],
+        construct: &impl Fn(
+            &AnswersSolver<Ans>,
+            &[CallArg],
+            &[CallKeyword],
+            Option<&Type>,
+        ) -> ConstructedInstance,
+    ) -> Option<Vec<Speculation<ConstructedInstance>>> {
+        let attempt = |args: &[CallArg], keywords: &[CallKeyword], hint: Option<&Type>| {
+            self.speculate(call, || {
+                let mut result = construct(self, args, keywords, hint);
+                result.ty = self.solver().expand(result.ty, self);
+                result
+            })
+        };
+        let probe_all = || {
+            arg_lists
+                .iter()
+                .map(|(args, keywords)| {
+                    let probe = select_constructor_hint(args, keywords, hints, &attempt);
+                    probe.value.is_match().then_some(probe)
+                })
+                .collect::<Option<Vec<_>>>()
+        };
+        let probes = probe_all()?;
+        let mut bounds = SmallMap::new();
+        for probe in &probes {
+            for (var, ty) in &probe.inferred {
+                bounds.entry(*var).or_insert_with(Vec::new).push(ty.clone());
+            }
+        }
+        if bounds.is_empty() {
+            return Some(probes);
+        }
+        for (var, types) in bounds {
+            if !self.is_subset_eq(&self.unions(types), &Type::Var(var)) {
+                return None;
+            }
+        }
+        probe_all()
     }
 
     fn construct_class(
@@ -1348,18 +1694,24 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         let prepared = ConstructorArguments::new(hint);
         let (args, keywords) = prepared.prepare(args, keywords);
 
-        self.construct_with_hint(hint, |hint| {
-            self.construct_class_inner(
-                cls.clone(),
-                constructor_kind.clone(),
-                &args,
-                &keywords,
-                arguments_range,
-                callee_range,
-                context,
-                hint,
-            )
-        })
+        self.construct_with_hint(
+            cls.targs(),
+            &args,
+            &keywords,
+            hint,
+            |solver, args, keywords, hint| {
+                solver.construct_class_inner(
+                    cls.clone(),
+                    constructor_kind.clone(),
+                    args,
+                    keywords,
+                    arguments_range,
+                    callee_range,
+                    context,
+                    hint,
+                )
+            },
+        )
         .take(
             arguments_range,
             errors,
@@ -1713,16 +2065,22 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         let hint = HintRef::filter_for_constructor(hint, typed_dict.targs());
         let prepared = ConstructorArguments::new(hint);
         let (args, keywords) = prepared.prepare(args, keywords);
-        self.construct_with_hint(hint, |hint| {
-            self.construct_typed_dict_inner(
-                typed_dict.clone(),
-                &args,
-                &keywords,
-                arguments_range,
-                context,
-                hint,
-            )
-        })
+        self.construct_with_hint(
+            typed_dict.targs(),
+            &args,
+            &keywords,
+            hint,
+            |solver, args, keywords, hint| {
+                solver.construct_typed_dict_inner(
+                    typed_dict.clone(),
+                    args,
+                    keywords,
+                    arguments_range,
+                    context,
+                    hint,
+                )
+            },
+        )
         .take(
             arguments_range,
             errors,
@@ -2452,81 +2810,73 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             self.intersect_guarantees(&guarantees)
         };
         let hint_ty = hint.map(|hint| self.unions(hint.types().to_vec()));
-        let mut roots = targets.iter().map(|member| &member.ty).collect::<Vec<_>>();
-        roots.extend(
+        let call_site = CallSpeculation::new(
+            self,
+            &args,
+            &keywords,
             targets
                 .iter()
-                .flat_map(|member| &member.constructor_witnesses),
+                .map(|member| &member.ty)
+                .chain(
+                    targets
+                        .iter()
+                        .flat_map(|member| &member.constructor_witnesses),
+                )
+                .chain(hint_ty.as_ref())
+                .chain(
+                    ctor_targs
+                        .as_ref()
+                        .into_iter()
+                        .flat_map(|targs| targs.as_slice()),
+                )
+                .cloned(),
         );
-        for arg in &args {
-            let (CallArg::Arg(value) | CallArg::Star(value, _)) = arg;
-            if let TypeOrExpr::Type(ty, _) = value.as_type_or_expr() {
-                roots.push(ty);
-            }
-        }
-        for keyword in &keywords {
-            if let TypeOrExpr::Type(ty, _) = keyword.value.as_type_or_expr() {
-                roots.push(ty);
-            }
-        }
-        roots.extend(hint_ty.as_ref());
-        // Deferred containers can capture the unpinned answer whose first use is this call.
-        let first_use_types = self.active_first_use_types();
-        roots.extend(first_use_types.iter());
-        let lambda_snapshot = self.snapshot_lambda_param_types();
-        roots.extend(lambda_snapshot.iter().filter_map(|(_, ty)| ty.as_ref()));
         let mut accepted = Vec::new();
         let mut failures = Vec::new();
         for (index, member) in targets.iter().enumerate() {
-            let _lambda_context = self.enter_lambda_binding_context([]);
-            let snapshot = self.solver().snapshot_reachable_vars(&roots);
-            let arg_errors = self.error_collector();
-            let attempt_errors = self.error_collector();
-            let attempt_return_errors = self.error_collector();
-            let mut attempt_targs = ctor_targs.as_ref().map(|targs| (**targs).clone());
-            let outcome = solver.call_infer_with_callee_range(
-                member.target.clone(),
-                &args,
-                &keywords,
-                arguments_range,
-                callee_range,
-                &arg_errors,
-                &attempt_errors,
-                &attempt_return_errors,
-                context,
-                hint_ty.as_ref().map(HintRef::soft),
-                attempt_targs.as_mut(),
-            );
-            if attempt_errors.has_hard() {
-                failures.push((index, arg_errors, attempt_errors, attempt_return_errors));
-            } else {
+            let attempt = solver.speculate(&call_site, || {
+                let arg_errors = self.error_collector();
+                let attempt_errors = self.error_collector();
+                let attempt_return_errors = self.error_collector();
+                let mut attempt_targs = ctor_targs.as_ref().map(|targs| (**targs).clone());
+                let outcome = solver.call_infer_with_callee_range(
+                    member.target.clone(),
+                    &args,
+                    &keywords,
+                    arguments_range,
+                    callee_range,
+                    &arg_errors,
+                    &attempt_errors,
+                    &attempt_return_errors,
+                    context,
+                    hint_ty.as_ref().map(HintRef::soft),
+                    attempt_targs.as_mut(),
+                );
                 // Materialize each correlated world before its variable state is rolled back.
                 let results = self.solver().per_row(&outcome.overload_table, || {
                     add_constructor_witnesses(self.solver().expand(outcome.ty.clone(), self), index)
                 });
                 let ty = Type::combine_overload_results(results.into_vec(), self.heap, self)
                     .expect("an applicable call has at least one result");
-                let lambda_types = self
-                    .snapshot_lambda_param_types()
-                    .into_iter()
-                    .map(|(id, ty)| (id, ty.map(|ty| self.solver().expand(ty, self))))
-                    .collect::<Vec<_>>();
-                accepted.push(AcceptedIntersectionCall {
+                AcceptedIntersectionCall {
                     index,
                     ty,
                     arg_errors,
                     call_errors: attempt_errors,
                     return_errors: attempt_return_errors,
-                    lambda_types,
-                });
+                    ctor_targs: attempt_targs,
+                }
+            });
+            if attempt.value.call_errors.has_hard() {
+                failures.push(attempt.value);
+            } else {
+                accepted.push(attempt);
             }
-            self.solver().restore_vars(snapshot);
-            self.restore_lambda_param_types(&lambda_snapshot);
         }
         let Some((representative, first)) = accepted
             .iter()
             .enumerate()
-            .min_by_key(|(_, attempt)| attempt.arg_errors.len_hard())
+            .min_by_key(|(_, attempt)| attempt.value.arg_errors.len_hard())
         else {
             let mut builder = call_errors
                 .error_builder(
@@ -2535,7 +2885,14 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     "No intersection member accepts this call".to_owned(),
                 )
                 .with_context(self, context);
-            for (index, arg_errors, attempt_errors, attempt_return_errors) in failures {
+            for AcceptedIntersectionCall {
+                index,
+                arg_errors,
+                call_errors: attempt_errors,
+                return_errors: attempt_return_errors,
+                ..
+            } in failures
+            {
                 builder = builder
                     .with_detail(format!("  {}", self.display(targets[index].ty.clone())))
                     .with_errors_as_details(attempt_errors);
@@ -2545,8 +2902,8 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             builder.emit();
             return CallOutcome::of_ty(self.heap.mk_any_error());
         };
-        let first_index = first.index;
-        let fewest_arg_errors = first.arg_errors.len_hard();
+        let first_index = first.value.index;
+        let fewest_arg_errors = first.value.arg_errors.len_hard();
         if accepted.len() == 1 {
             self.report_call_deprecation(
                 &targets[first_index].target,
@@ -2579,61 +2936,44 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             }
             return outcome;
         }
-        // Commit one applicable signature's ordinary inference, without letting it reject siblings.
-        let ignored = self.error_swallower();
-        let first = solver.call_infer_with_callee_range(
-            targets[first_index].target.clone(),
-            &args,
-            &keywords,
-            arguments_range,
-            callee_range,
-            &ignored,
-            &ignored,
-            &ignored,
-            context,
-            hint_ty.as_ref().map(HintRef::soft),
-            ctor_targs,
-        );
-        let first_results = self.solver().per_row(&first.overload_table, || {
-            add_constructor_witnesses(self.solver().expand(first.ty.clone(), self), first_index)
-        });
-        accepted[representative].ty =
-            Type::combine_overload_results(first_results.into_vec(), self.heap, self)
-                .expect("an applicable call has at least one result");
         let mut results = Vec::new();
-        let mut lambda_types = SmallMap::new();
-        for AcceptedIntersectionCall {
-            index,
-            ty,
-            arg_errors,
-            call_errors: attempt_errors,
-            return_errors: attempt_return_errors,
-            lambda_types: params,
-        } in accepted
-        {
+        for attempt in &accepted {
             self.report_call_deprecation(
-                &targets[index].target,
+                &targets[attempt.value.index].target,
                 callee_range.unwrap_or(arguments_range),
                 errors,
                 context,
             );
-            results.push(ty);
-            let publish_context = arg_errors.len_hard() == fewest_arg_errors;
-            if index == first_index {
-                errors.extend(arg_errors);
-            }
-            call_errors.extend(attempt_errors);
-            return_errors.extend(attempt_return_errors);
-            if publish_context {
-                for (id, ty) in params {
-                    if let Some(ty) = ty {
-                        lambda_types.entry(id).or_insert_with(Vec::new).push(ty);
-                    }
-                }
-            }
+            results.push(attempt.value.ty.clone());
         }
-        for (id, types) in lambda_types {
-            self.set_lambda_param_type(id, self.unions(types));
+        // Return guarantees include every applicable signature. Contextual effects come from
+        // the best argument checks, with the representative's caller inference state.
+        accepted.swap(0, representative);
+        accepted.retain(|attempt| attempt.value.arg_errors.len_hard() == fewest_arg_errors);
+        if fewest_arg_errors != 0 {
+            // No contextual check succeeded. Report one complete failure instead of
+            // intersecting different hard errors into an empty diagnostic set.
+            accepted.truncate(1);
+        }
+        let outcomes = self.merge_accepted(&call_site, accepted, |outcome| {
+            [
+                &outcome.call_errors,
+                &outcome.arg_errors,
+                &outcome.return_errors,
+            ]
+        });
+        for outcome in outcomes {
+            if outcome.index == first_index {
+                errors.extend(outcome.arg_errors);
+                call_errors.extend(outcome.call_errors);
+                return_errors.extend(outcome.return_errors);
+                if let Some(ctor_targs) = ctor_targs {
+                    *ctor_targs = outcome
+                        .ctor_targs
+                        .expect("constructor arguments are retained");
+                }
+                break;
+            }
         }
         CallOutcome::of_ty(self.intersect_guarantees(&results))
     }

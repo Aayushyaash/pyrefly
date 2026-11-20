@@ -367,18 +367,26 @@ result: Base[object] = {expression}
     )
 }
 
-/// Each layer rejects the first hint and checks the same child under the second hint.
-fn nested_init_only_constructor_hints(depth: usize) -> String {
-    let mut expression = "Node(value)".to_owned();
+/// Repeated contextual attempts check each child against the same union hint.
+fn nested_init_only_constructor_hints(depth: usize, value_type: &str, callbacks: bool) -> String {
+    let callback = if callbacks { "lambda arg: None, " } else { "" };
+    let callback_parameter = if callbacks {
+        "cb: Callable[[T], None], "
+    } else {
+        ""
+    };
+    let mut expression = format!("Node({callback}value)");
     for _ in 1..depth {
-        expression = format!("Node(value, {expression})");
+        expression = format!("Node({callback}value, {expression})");
     }
     format!(
         r#"
-class Node[T]:
-    def __init__(self, value: T, child: Node[int] | Node[str] | None = None) -> None: ...
+from typing import Callable
 
-def f(value: str) -> None:
+class Node[T]:
+    def __init__(self, {callback_parameter}value: T, child: Node[int] | Node[str] | None = None) -> None: ...
+
+def f(value: {value_type}) -> None:
     root: Node[int] | Node[str] = {expression}
 "#
     )
@@ -659,6 +667,39 @@ fn overloads(c: &mut Criterion) {
 }
 
 fn nested_generic_constructor(c: &mut Criterion) {
+    for count in [3200, 6400] {
+        let calls = "A(lambda x: None), ".repeat(count);
+        measure(
+            c,
+            &format!("sibling_constructor_lambdas_{count}"),
+            format!(
+                r#"
+from typing import Callable
+class A[T]:
+    def __init__(self, cb: Callable[[T], None]) -> None: ...
+items: list[A[int]] = [{calls}]
+"#,
+            ),
+            0,
+        );
+    }
+    for count in [800, 1600] {
+        let calls = "A(lambda x: None, value), ".repeat(count);
+        measure(
+            c,
+            &format!("sibling_distributed_constructor_lambdas_{count}"),
+            format!(
+                r#"
+from typing import Callable
+class A[T]:
+    def __init__(self, cb: Callable[[T], None], value: T) -> None: ...
+def f(value: int | str) -> None:
+    items: list[A[int] | A[str]] = [{calls}]
+"#,
+            ),
+            0,
+        );
+    }
     measure(
         c,
         "nested_generic_constructor_soft_error_12",
@@ -669,8 +710,33 @@ fn nested_generic_constructor(c: &mut Criterion) {
         measure(
             c,
             &format!("nested_init_only_constructor_hints_{depth}"),
-            nested_init_only_constructor_hints(depth),
+            nested_init_only_constructor_hints(depth, "str", false),
             0,
+        );
+    }
+    for depth in [8, 12] {
+        measure(
+            c,
+            &format!("nested_init_only_constructor_union_distribution_{depth}"),
+            nested_init_only_constructor_hints(depth, "int | str", false),
+            depth,
+        );
+    }
+    // Nested union hints are disabled inside a constructor probe.
+    for depth in [3, 4, 6, 8] {
+        measure(
+            c,
+            &format!("nested_contextual_constructor_union_{depth}"),
+            nested_init_only_constructor_hints(depth, "int | str", true),
+            depth,
+        );
+    }
+    for depth in [4, 6, 8] {
+        measure(
+            c,
+            &format!("nested_rejected_constructor_union_{depth}"),
+            nested_init_only_constructor_hints(depth, "int | str | bytes", false),
+            depth,
         );
     }
 }

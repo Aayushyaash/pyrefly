@@ -2010,15 +2010,21 @@ impl ThreadState {
 
     /// Captures expression traces and also retains them in the current calculation.
     pub(crate) fn capture_traces<T>(&self, f: impl FnOnce() -> T) -> (T, Option<TraceSideEffects>) {
+        let (result, traces) = self.defer_traces(f);
+        if let Some(traces) = &traces {
+            self.replay_traces(traces);
+        }
+        (result, traces)
+    }
+
+    /// Capture a speculative outcome without publishing its expression traces.
+    pub(crate) fn defer_traces<T>(&self, f: impl FnOnce() -> T) -> (T, Option<TraceSideEffects>) {
         if self.trace_sink.borrow().is_none() {
             return (f(), None);
         }
         self.install_trace_sink();
         let result = f();
         let traces = self.take_trace_sink();
-        if let Some(traces) = &traces {
-            self.replay_traces(traces);
-        }
         (result, traces)
     }
 
@@ -2113,6 +2119,8 @@ pub struct AnswersSolver<'ctx, 'answer, Ans: LookupAnswer> {
     thread_state: &'answer ThreadState,
     answer_scope: &'answer AnswerScope,
     comprehension_frame: Option<(usize, Option<CalcId>)>,
+    /// Constructor probes do not recursively search nested union hints.
+    constructor_probe: bool,
     // The base solver is only used to reset the error collector at binding
     // boundaries. Answers code should generally use the error collector passed
     // along the call stack instead.
@@ -2246,6 +2254,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             thread_state,
             answer_scope,
             comprehension_frame: None,
+            constructor_probe: false,
             heap,
         }
     }
@@ -2276,6 +2285,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             thread_state: self.thread_state,
             answer_scope,
             comprehension_frame: self.comprehension_frame.clone(),
+            constructor_probe: self.constructor_probe,
             base_errors: self.base_errors,
             exports: self.exports,
             uniques: self.uniques,
@@ -2327,6 +2337,24 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             return self.bindings().get_class_fields(cls.index());
         }
         self.answers.get_class_fields(cls)
+    }
+
+    pub(crate) fn in_constructor_probe(&self) -> bool {
+        self.constructor_probe
+    }
+
+    /// Keep nested union searches out of probes without affecting independent solves.
+    pub(crate) fn for_constructor_probe(&self) -> AnswersSolver<'ctx, '_, Ans> {
+        let mut solver = self.for_answer_scope(self.answer_scope);
+        solver.constructor_probe = true;
+        solver
+    }
+
+    /// A cached binding must not inherit an enclosing call's speculative precision limit.
+    fn for_binding(&self) -> AnswersSolver<'ctx, '_, Ans> {
+        let mut solver = self.for_answer_scope(self.answer_scope);
+        solver.constructor_probe = false;
+        solver
     }
 
     /// Start an independent lambda-hint or speculative-call inference attempt.
@@ -2446,13 +2474,12 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             .cloned()
     }
 
-    /// Capture contextual lambda types owned by the current binding for a speculative call.
-    pub(crate) fn snapshot_lambda_param_types(&self) -> Vec<(LambdaParamId, Option<Type>)> {
-        let Some(CalcId(_, AnyIdx::Key(owner))) = self.stack().peek() else {
-            return Vec::new();
-        };
-        self.bindings()
-            .owned_lambda_params(owner)
+    /// Capture only the lambda parameters in the speculative call's argument subtree.
+    pub(crate) fn snapshot_lambda_param_types(
+        &self,
+        parameters: &[LambdaParamId],
+    ) -> Vec<(LambdaParamId, Option<Type>)> {
+        parameters
             .iter()
             .map(|id| (*id, self.get_lambda_param_type(*id)))
             .collect()
@@ -2823,7 +2850,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         let range = K::range_with(idx, self.bindings());
 
         let local_errors = self.error_collector();
-        let solve_result = K::solve(self, binding, range, &local_errors);
+        let solve_result = K::solve(&self.for_binding(), binding, range, &local_errors);
 
         // Take accumulated traces.
         let trace_side_effects = if tracing_enabled {
@@ -3049,7 +3076,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         // each result is independently deep-forced before convergence comparison.
         // Preserving sharing would require identifying the fully forced target
         // from the final generation and keeping that allocation alive.
-        let raw_answer = K::solve(self, binding, range, &local_errors)
+        let raw_answer = K::solve(&self.for_binding(), binding, range, &local_errors)
             .into_answer(|target| self.get_idx(target).clone());
 
         // Take accumulated traces. Discard during cold iteration (like errors).

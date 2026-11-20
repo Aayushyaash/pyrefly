@@ -19,6 +19,7 @@ use pyrefly_util::lock::Mutex;
 use ruff_text_size::Ranged;
 use ruff_text_size::TextRange;
 use ruff_text_size::TextSize;
+use starlark_map::small_set::SmallSet;
 
 use crate::config::error::ErrorConfig;
 use crate::config::error_kind::Severity;
@@ -54,12 +55,48 @@ impl ModuleDiagnostics {
 
     /// Replay finalized diagnostics into an inference attempt while retaining the snapshot.
     pub(crate) fn replay(&self, errors: &ErrorCollector) {
+        self.replay_filtered(errors, |_| true);
+    }
+
+    /// Replay diagnostics that remain valid in the receiving context.
+    pub(crate) fn replay_filtered(
+        &self,
+        errors: &ErrorCollector,
+        mut keep: impl FnMut(&Error) -> bool,
+    ) {
         if errors.is_active() {
             let replayed = ModuleErrors {
                 clean: true,
-                items: self.0.to_vec(),
+                items: self.0.iter().filter(|error| keep(error)).cloned().collect(),
             };
             errors.errors.lock().extend(replayed);
+        }
+    }
+
+    /// Contextual diagnostics must agree in range, kind, and message across accepted checks.
+    /// Deprecation and directives remain visible even when only one context emits them.
+    pub(crate) fn replay_contexts(
+        alternatives: &[Self],
+        destination: &ErrorCollector,
+        contextual_ranges: &[TextRange],
+    ) {
+        let Some((first, rest)) = alternatives.split_first() else {
+            return;
+        };
+        let mut common = first.iter().collect::<SmallSet<_>>();
+        for alternative in rest {
+            let current = alternative.iter().collect::<SmallSet<_>>();
+            common.retain(|error| current.contains(error));
+        }
+        for alternative in alternatives {
+            alternative.replay_filtered(destination, |error| {
+                error.error_kind() == ErrorKind::Deprecated
+                    || error.error_kind().is_directive()
+                    || !contextual_ranges
+                        .iter()
+                        .any(|range| range.contains_range(error.range()))
+                    || common.contains(error)
+            });
         }
     }
 }
@@ -873,6 +910,67 @@ mod tests {
 
     fn add(errors: &ErrorCollector, range: TextRange, kind: ErrorKind, msg: String) {
         errors.error_builder(range, kind, msg).emit();
+    }
+
+    #[test]
+    fn test_contextual_diagnostic_agreement() {
+        let module = ModuleInfo::new(
+            ModuleName::from_str("main"),
+            ModulePath::filesystem(PathBuf::from("main.py")),
+            Arc::new("0123456789".to_owned()),
+        );
+        let range = TextRange::new(TextSize::new(1), TextSize::new(2));
+        let outside = TextRange::new(TextSize::new(8), TextSize::new(9));
+        let first = ErrorCollector::new(module.dupe(), ErrorStyle::Delayed);
+        let second = ErrorCollector::new(module.dupe(), ErrorStyle::Delayed);
+        for collector in [&first, &second] {
+            add(
+                collector,
+                range,
+                ErrorKind::RedundantCast,
+                "common".to_owned(),
+            );
+        }
+        add(
+            &first,
+            range,
+            ErrorKind::IncompatibleComparison,
+            "int comparison".to_owned(),
+        );
+        add(
+            &second,
+            range,
+            ErrorKind::IncompatibleComparison,
+            "str comparison".to_owned(),
+        );
+        add(
+            &first,
+            range,
+            ErrorKind::UnnecessaryTypeConversion,
+            "branch only".to_owned(),
+        );
+        add(
+            &first,
+            range,
+            ErrorKind::Deprecated,
+            "deprecated".to_owned(),
+        );
+        add(
+            &first,
+            outside,
+            ErrorKind::RedundantCast,
+            "outside".to_owned(),
+        );
+        let result = ErrorCollector::new(module, ErrorStyle::Delayed);
+        ModuleDiagnostics::replay_contexts(&[first.take(), second.take()], &result, &[range]);
+        assert_eq!(
+            result
+                .finish()
+                .iter()
+                .map(Error::msg_header)
+                .collect::<Vec<_>>(),
+            vec!["common", "deprecated", "outside"],
+        );
     }
 
     #[test]
