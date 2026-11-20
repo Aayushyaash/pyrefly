@@ -722,7 +722,7 @@ def f(value: int | str) -> None:
             depth,
         );
     }
-    // Nested union hints are disabled inside a constructor probe.
+    // Nested argument distribution is disabled inside a constructor probe.
     for depth in [3, 4, 6, 8] {
         measure(
             c,

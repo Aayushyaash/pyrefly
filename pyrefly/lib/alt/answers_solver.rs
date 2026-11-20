@@ -2119,7 +2119,7 @@ pub struct AnswersSolver<'ctx, 'answer, Ans: LookupAnswer> {
     thread_state: &'answer ThreadState,
     answer_scope: &'answer AnswerScope,
     comprehension_frame: Option<(usize, Option<CalcId>)>,
-    /// Constructor probes do not recursively search nested union hints.
+    /// Constructor probes preserve hints but do not recursively distribute arguments.
     constructor_probe: bool,
     // The base solver is only used to reset the error collector at binding
     // boundaries. Answers code should generally use the error collector passed
@@ -2343,7 +2343,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         self.constructor_probe
     }
 
-    /// Keep nested union searches out of probes without affecting independent solves.
+    /// Keep nested argument distribution out of probes without affecting independent solves.
     pub(crate) fn for_constructor_probe(&self) -> AnswersSolver<'ctx, '_, Ans> {
         let mut solver = self.for_answer_scope(self.answer_scope);
         solver.constructor_probe = true;

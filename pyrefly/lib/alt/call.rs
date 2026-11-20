@@ -1461,11 +1461,6 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 construct(self, args, keywords, None)
             };
         }
-        // A probe checks nested expressions normally, but does not start another search.
-        // This bounds recursive speculation without sharing fuel between sibling calls.
-        if self.in_constructor_probe() {
-            return construct(self, args, keywords, None);
-        }
         let call = CallSpeculation::new(
             self,
             args,
@@ -1481,7 +1476,8 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             })
         };
         let unexpanded = select_constructor_hint(args, keywords, hint.types(), &attempt);
-        if unexpanded.value.is_match() {
+        // Nested probes retain ordinary hint selection without recursively distributing inputs.
+        if unexpanded.value.is_match() || self.in_constructor_probe() {
             return unexpanded.commit(self);
         }
         solver
