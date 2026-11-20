@@ -593,7 +593,6 @@ class Child(Base):
     assert_eq!(result, code.replace("def met\n", "def method\n"));
 }
 
-// BUG: Later typing imports either supply an unbound decorator or receive its import edit.
 #[test]
 fn decorator_import_after_class() {
     for import in [
@@ -608,12 +607,12 @@ fn decorator_import_after_class() {
             "class Base:\n    def method(self) -> None: pass\nclass Child(Base):\n    def met\n{import}\n"
         );
         let (item, result) = complete(&code, &[]);
-        assert!(item.text_edit.is_some(), "{result}");
-        assert!(result.contains("@"), "{result}");
+        assert!(item.text_edit.is_none(), "{result}");
+        assert!(item.additional_text_edits.is_none(), "{result}");
+        assert_eq!(result, code.replace("def met\n", "def method\n"));
     }
 }
 
-// BUG: A private keyword-only parameter cannot be forwarded under its source name.
 #[test]
 fn private_keyword_only_parameter() {
     let code = r#"class Base:
@@ -623,10 +622,7 @@ class Child(Base):
     def met
 "#;
     let (item, result) = complete(code, &[]);
-    assert!(item.text_edit.is_some());
-    assert!(
-        result.contains("super().method(__value=__value)"),
-        "{result}"
-    );
-    check_result(&result, &[]);
+    assert!(item.text_edit.is_none());
+    assert!(item.additional_text_edits.is_none());
+    assert_eq!(result, code.replace("def met\n", "def method\n"));
 }

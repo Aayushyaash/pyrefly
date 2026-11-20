@@ -9,6 +9,7 @@ use std::cell::OnceCell;
 
 use lsp_types::TextEdit;
 use pyrefly_build::handle::Handle;
+use pyrefly_python::ast::Ast;
 use pyrefly_python::module::Module;
 use pyrefly_python::module_name::ModuleName;
 use pyrefly_types::callable::Param;
@@ -19,6 +20,7 @@ use pyrefly_types::env::TypeEnv;
 use pyrefly_types::literal::Lit;
 use pyrefly_types::type_output::AnnotationPart;
 use pyrefly_types::types::Type;
+use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtFunctionDef;
 use ruff_python_ast::name::Name;
 use ruff_text_size::Ranged;
@@ -74,6 +76,27 @@ impl<'a, 'state> OverrideCompletion<'a, 'state> {
             return None;
         }
         let ast = transaction.get_ast(handle)?;
+        // Decorators execute before any following module imports.
+        if ast
+            .body
+            .iter()
+            .filter(|stmt| stmt.start() > method.start())
+            .any(|stmt| match stmt {
+                Stmt::Import(import) => import
+                    .names
+                    .iter()
+                    .any(|alias| matches!(alias.name.as_str(), "typing" | "typing_extensions")),
+                Stmt::ImportFrom(import) => {
+                    import.level == 0
+                        && import.module.as_ref().is_some_and(|module| {
+                            matches!(module.as_str(), "typing" | "typing_extensions")
+                        })
+                }
+                _ => false,
+            })
+        {
+            return None;
+        }
         let override_in_scope = override_in_scope(&ast);
         let annotations = AnnotationRenderer::new(transaction, handle, ast, import_format);
         Some(Self {
@@ -131,6 +154,7 @@ impl<'a, 'state> OverrideCompletion<'a, 'state> {
         }
         for (i, param) in params.items().iter().enumerate() {
             if param.name()?.as_str() == "super"
+                || (matches!(param, Param::KwOnly(..)) && Ast::is_mangled_attr(param.name()?))
                 || (i != 0 && !supported_annotation(param.as_type()))
             {
                 return None;
