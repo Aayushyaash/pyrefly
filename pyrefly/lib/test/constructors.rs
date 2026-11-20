@@ -290,6 +290,30 @@ def f(value: int | str | bytes) -> None:
 );
 
 testcase!(
+    bug = "An outer union hint discards nested constructor context",
+    test_constructor_union_hint_preserves_nested_context,
+    r#"
+class Box[T]:
+    def __init__(self, items: list[T]) -> None: ...
+
+class Outer[T]:
+    def __init__(self, value: T, child: Box[float] | Box[str]) -> None: ...
+
+def need(value: Outer[int] | Outer[str]) -> None: ...
+
+def f(value: int, both: int | str) -> None:
+    plain: Outer[int] | Outer[str] = Outer(value, Box([1]))  # E: is not assignable to parameter `child`
+    keyword: Outer[int] | Outer[str] = Outer(value=value, child=Box([1]))  # E: is not assignable to parameter `child`
+    need(Outer(value, Box([1])))  # E: is not assignable to parameter `child`
+    distributed: Outer[int] | Outer[str] = Outer(both, Box([1]))  # E: is not assignable to `Outer[int] | Outer[str]` # E: is not assignable to parameter `child`
+    single: Outer[int] = Outer(value, Box([1]))
+    child: Box[float] | Box[str] = Box([1])
+    separate: Outer[int] | Outer[str] = Outer(value, child)
+    invalid: Outer[int] | Outer[str] = Outer(value, Box([b"bad"]))  # E: is not assignable to parameter `child`
+"#,
+);
+
+testcase!(
     test_constructor_union_distribution_caller_bounds,
     r#"
 class A[T]:
