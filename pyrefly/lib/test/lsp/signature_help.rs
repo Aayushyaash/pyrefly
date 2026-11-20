@@ -631,6 +631,61 @@ bound = Foo().method
 }
 
 #[test]
+fn rejected_receiver_overload_parameters_test() {
+    let definitions = r#"
+from typing import overload
+
+class C[T]:
+    @overload
+    def method(self: C[int], value: int) -> int: ...
+    @overload
+    def method(self: C[str], value: str) -> str: ...
+    def method(self, value: object) -> object:
+        return value
+
+def use(obj: C[bytes]) -> None:
+"#;
+    for (call, chosen) in [
+        ("obj.method(|)", 0),
+        ("obj.method(|1)", 0),
+        ("obj.method(|'x')", 1),
+    ] {
+        let code = format!("{definitions}    {call}\n");
+        let position = TextSize::try_from(code.find('|').expect("cursor marker present"))
+            .expect("test source fits in TextSize");
+        let code = code.replace('|', "");
+        let (handles, state) = mk_multi_file_state(&[("main", &code)], Require::Exports, false);
+        let signature = state
+            .transaction()
+            .get_signature_help_at(handles.get("main").unwrap(), position)
+            .expect("signature help available");
+        assert_eq!(signature.active_signature, Some(chosen), "{call}");
+        assert_eq!(
+            signature
+                .signatures
+                .iter()
+                .map(|sig| sig.label.as_str())
+                .collect_vec(),
+            vec!["() -> int", "() -> str"],
+            "{call}"
+        );
+        // Bug: receiver recovery has already stripped the receiver, so rendering removes value.
+        for signature in &signature.signatures {
+            assert_eq!(
+                signature
+                    .parameters
+                    .as_ref()
+                    .expect("parameters available")
+                    .len(),
+                0,
+                "{call}"
+            );
+            assert_eq!(signature.active_parameter, None, "{call}");
+        }
+    }
+}
+
+#[test]
 fn overloaded_function_test() {
     let code = r#"
 from typing import overload
