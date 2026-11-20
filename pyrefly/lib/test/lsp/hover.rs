@@ -44,6 +44,38 @@ fn get_test_report(state: &State, handle: &Handle, position: TextSize) -> String
 }
 
 #[test]
+fn hover_callback_arguments_in_generic_constructor() {
+    let code = r#"
+from typing import Callable
+
+class C:
+    def __init__(self, cb: Callable[[int], None]) -> None: ...
+
+class Worker:
+    def callback(self, value: int) -> None: ...
+
+def callback(self: int) -> None: ...
+
+def make[T: C](cls: type[T], worker: Worker) -> None:
+    cls(callback)
+#         ^
+    cls(worker.callback)
+#                 ^
+"#;
+    let report = get_batched_lsp_operations_report(&[("main", code)], get_test_report);
+    // Bug: the constructor-return rewrite also changes callback argument types.
+    assert!(
+        report.contains("def callback(self: int) -> int: ..."),
+        "{report}"
+    );
+    let compact_report = report.split_whitespace().collect::<String>();
+    assert!(
+        compact_report.contains("defcallback(self:Worker,value:int)->Worker:..."),
+        "{report}"
+    );
+}
+
+#[test]
 fn hover_constructor_union_contexts() {
     let code = r#"
 from typing import Callable
