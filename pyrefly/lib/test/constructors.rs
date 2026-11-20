@@ -609,40 +609,39 @@ C("5")  # E: Argument `Literal['5']` is not assignable to parameter `x` with typ
 // https://github.com/pyrefly-org/pyrefly/issues/3679
 // None of these classes has an argument list accepted by both constructor methods.
 testcase!(
-    bug = "Constructor definitions with disjoint call shapes are not diagnosed",
     test_constructor_disjoint_call_shapes,
     r#"
 from typing import Self, overload
 
 class RequiredNew:
     def __new__(cls, value: int) -> Self: ...
-    def __init__(self) -> None: ...
+    def __init__(self) -> None: ...  # E: accept no common argument list
 
 class RequiredInit:
     def __new__(cls) -> Self: ...
-    def __init__(self, value: int) -> None: ...
+    def __init__(self, value: int) -> None: ...  # E: accept no common argument list
 
 class GenericNew:
     def __new__[T](cls: type[T], value: int) -> T: ...
-    def __init__(self) -> None: ...
+    def __init__(self) -> None: ...  # E: accept no common argument list
 
 class PositionalOnly:
     def __new__(cls, x: int, y: int, /) -> Self: ...
-    def __init__(self, x: int) -> None: ...
+    def __init__(self, x: int) -> None: ...  # E: accept no common argument list
 
 class KeywordOnly:
     def __new__(cls, *, x: int) -> Self: ...
-    def __init__(self, *, y: int) -> None: ...
+    def __init__(self, *, y: int) -> None: ...  # E: accept no common argument list
 
 class DuplicateArgument:
     def __new__(cls, x: int, /, *, y: int) -> Self: ...
-    def __init__(self, y: int) -> None: ...
+    def __init__(self, y: int) -> None: ...  # E: accept no common argument list
 
 class EmptyInit:
     def __init__(self) -> None: ...
 
 class InheritedInit(EmptyInit):
-    def __new__(cls, value: int) -> Self: ...
+    def __new__(cls, value: int) -> Self: ...  # E: accept no common argument list
 
 class UnchangedSubclass(InheritedInit):
     pass
@@ -653,7 +652,7 @@ class OverloadedNew:
     @overload
     def __new__(cls, x: int, y: int, /) -> Self: ...
     def __new__(cls, *args: int) -> Self: ...
-    def __init__(self) -> None: ...
+    def __init__(self) -> None: ...  # E: accept no common argument list
 "#,
 );
 
@@ -773,7 +772,7 @@ class GoodChild(Parent2):
     def __new__[T](cls: type[T], x: int) -> T: ...
 class BadChild(Parent1):
     # Incompatible with inherited __init__
-    def __new__[T](cls: type[T], x: int) -> T: ...
+    def __new__[T](cls: type[T], x: int) -> T: ...  # E: accept no common argument list
 GoodChild(0)
 GoodChild()  # E: Missing argument `x` in function `GoodChild.__new__`
 # Both of these calls error at runtime.

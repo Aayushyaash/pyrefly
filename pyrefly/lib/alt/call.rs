@@ -3003,6 +3003,84 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         .ty
     }
 
+    /// Diagnose constructor methods with provably incompatible argument shapes.
+    pub(crate) fn check_consistent_constructor(&self, cls: &Class, errors: &ErrorCollector) {
+        let Some(fields) = self.get_class_fields(cls) else {
+            return;
+        };
+        let Some(range) = fields
+            .field_decl_range(&dunder::INIT)
+            .or_else(|| fields.field_decl_range(&dunder::NEW))
+        else {
+            // Unchanged subclasses should not repeat their ancestor's diagnostic.
+            return;
+        };
+        let class_type = self.as_class_type_unchecked(cls);
+        let Some(new_type) = self.get_dunder_new(&class_type, false) else {
+            return;
+        };
+        let metadata = self.get_metadata_for_class(cls);
+        if metadata.has_base_any() || metadata.is_protocol() {
+            return;
+        }
+        // A custom __call__ may rewrite arguments, even without a return annotation.
+        if metadata.custom_metaclass().is_some_and(|metaclass| {
+            self.get_class_member_with_defining_class(metaclass.class_object(), &dunder::CALL)
+                .is_none_or(|member| !member.defining_class.is(KnownClass::Type))
+        }) {
+            return;
+        }
+        let Some(new) = self.bind_dunder_new(&new_type, class_type.clone()) else {
+            return;
+        };
+        let Some(Type::BoundMethod(init)) = self.get_dunder_init(&class_type, false) else {
+            return;
+        };
+        let init_type = init.func.as_type();
+        let Some(init_signatures) = init_type
+            .toplevel_callable_signatures()
+            .map(|(signature, _)| signature.strip_first_param())
+            .collect::<Option<Vec<_>>>()
+        else {
+            return;
+        };
+        let new_signatures = new.toplevel_callable_signatures().collect::<Vec<_>>();
+        if new_signatures.is_empty()
+            || init_signatures.is_empty()
+            || new_signatures.iter().any(|(signature, _)| {
+                // Foreign or unknown returns do not establish that __init__ will run.
+                !self.is_compatible_constructor_return(&signature.ret, cls)
+            })
+        {
+            return;
+        }
+        if new_signatures.iter().any(|(signature, _)| {
+            init_signatures
+                .iter()
+                .any(|init| signature.may_have_common_call_shape(init))
+        }) {
+            return;
+        }
+        errors
+            .error_builder(
+                range,
+                ErrorKind::InconsistentConstructor,
+                format!(
+                    "`__new__` and `__init__` of class `{}` accept no common argument list",
+                    cls.name(self)
+                ),
+            )
+            .with_detail(format!(
+                "`__new__`: {}",
+                self.for_display(new_type).display_with(self)
+            ))
+            .with_detail(format!(
+                "`__init__`: {}",
+                self.for_display(init_type).display_with(self)
+            ))
+            .emit();
+    }
+
     pub fn constructor_to_callable(&self, cls: &ClassType) -> Type {
         let class_type = self.heap.mk_class_type(cls.clone());
         if let Some(mut metaclass_call_attr_ty) = self.get_metaclass_dunder_call(cls) {

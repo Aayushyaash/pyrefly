@@ -268,6 +268,8 @@ pub enum ErrorKind {
     /// Kept so that existing `# pyrefly: ignore[incompatible-overload-residual]` comments and
     /// config entries continue to work. This variant is never emitted by the type checker.
     IncompatibleOverloadResidual,
+    /// Constructor methods have no common argument list.
+    InconsistentConstructor,
     /// An inconsistency between inherited fields or methods from multiple base classes.
     InconsistentInheritance,
     /// An inconsistency between the signature of a function overload and the implementation.

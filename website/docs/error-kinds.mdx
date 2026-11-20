@@ -969,6 +969,19 @@ project(f, 1)  # Overload type was not compatible with solved type variables: S 
 Deprecated: this error code has been renamed to [incompatible-overload-argument](#incompatible-overload-argument).
 The old name is still accepted in suppression comments and configuration for backwards compatibility.
 
+## inconsistent-constructor
+
+`__new__` and `__init__` have no common argument list. This check detects incompatible
+argument counts and required keyword-only names; parameter types are not compared.
+
+```python
+from typing import Self
+
+class C:
+    def __new__(cls, value: int) -> Self: ...
+    def __init__(self) -> None: ...  # error: no common argument list
+```
+
 ## inconsistent-inheritance
 
 When a class inherits from multiple base classes, the inherited fields must be consistent.

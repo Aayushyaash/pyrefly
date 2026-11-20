@@ -120,6 +120,11 @@ pub struct ArgCount {
 }
 
 impl ArgCount {
+    /// Whether the ranges contain a common argument count.
+    fn overlaps(&self, other: &Self) -> bool {
+        self.max.is_none_or(|max| other.min <= max) && other.max.is_none_or(|max| self.min <= max)
+    }
+
     fn none_allowed() -> Self {
         Self {
             min: 0,
@@ -836,6 +841,34 @@ impl Callable {
 
     pub fn arg_counts(&self) -> ArgCounts {
         self.params.arg_counts()
+    }
+
+    /// A false result proves that no argument list satisfies both signatures.
+    /// Matching counts and required keyword names are only necessary conditions;
+    /// parameter types and interactions between positional and keyword arguments are ignored.
+    pub fn may_have_common_call_shape(&self, other: &Self) -> bool {
+        let (Params::List(left) | Params::Partial(left)) = &self.params else {
+            return true;
+        };
+        let (Params::List(right) | Params::Partial(right)) = &other.params else {
+            return true;
+        };
+        let left_counts = self.arg_counts();
+        let right_counts = other.arg_counts();
+        let accepts_required_keywords = |params: &ParamList, other: &ParamList| {
+            params.items().iter().all(|param| match param {
+                Param::KwOnly(name, _, Required::Required) => other.items().iter().any(|p| {
+                    matches!(p, Param::Pos(n, ..) | Param::KwOnly(n, ..) if n == name)
+                        || matches!(p, Param::Kwargs(..))
+                }),
+                _ => true,
+            })
+        };
+        left_counts.positional.overlaps(&right_counts.positional)
+            && left_counts.keyword.overlaps(&right_counts.keyword)
+            && left_counts.overall.overlaps(&right_counts.overall)
+            && accepts_required_keywords(left, right)
+            && accepts_required_keywords(right, left)
     }
 }
 

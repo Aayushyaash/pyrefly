@@ -3974,7 +3974,19 @@
       "stop_line": 199
     }
   ],
-  "constructors_consistency.py": [],
+  "constructors_consistency.py": [
+    {
+      "code": -2,
+      "column": 9,
+      "concise_description": "`__new__` and `__init__` of class `Class1` accept no common argument list",
+      "description": "`__new__` and `__init__` of class `Class1` accept no common argument list\n  `__new__`: (cls: type[Class1]) -> Class1\n  `__init__`: (self: Class1, x: str) -> None",
+      "line": 25,
+      "name": "inconsistent-constructor",
+      "severity": "error",
+      "stop_column": 17,
+      "stop_line": 25
+    }
+  ],
   "dataclasses_descriptors.py": [],
   "dataclasses_final.py": [
     {

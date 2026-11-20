@@ -3783,6 +3783,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             let class_field_map = self.get_class_field_map(cls);
             self.check_consistent_override_for_class(cls, class_bases, &class_field_map, errors);
             self.check_variance_for_class(cls, class_bases, &class_field_map, errors);
+            self.check_consistent_constructor(cls, errors);
             self.check_shape_flag_constructor_sources(cls, errors);
             self.check_named_ints_constructor_sources(cls, errors);
             self.check_self_in_typed_dict(cls, &class_field_map, errors);
