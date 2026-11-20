@@ -3132,9 +3132,44 @@ impl OpenTypedDictSubsetError {
     }
 }
 
+/// The part of a callable signature that made a callable subset check fail.
+#[derive(Debug, Clone)]
+pub enum CallableSubsetError {
+    Params(ParamsSubsetError),
+    /// The parameters are compatible, but the return types are not.
+    Return(SubsetError),
+}
+
+/// A failed parameter list subset check.
+///
+/// The indices point into the parameter lists of the `got` and `want` callables, including the
+/// receiver of a bound method. An index is `None` when that side has no parameter that
+/// corresponds to the failure, and both are `None` when the failure cannot be attributed to
+/// individual parameters (for example, for a `ParamSpec`).
+#[derive(Debug, Clone)]
+pub struct ParamsSubsetError {
+    pub got_index: Option<usize>,
+    pub want_index: Option<usize>,
+    pub error: SubsetError,
+}
+
+impl ParamsSubsetError {
+    /// A failure that is not attributed to individual parameters, boxed as parameter list
+    /// checks return it.
+    pub fn unattributed(error: SubsetError) -> Box<Self> {
+        Box::new(Self {
+            got_index: None,
+            want_index: None,
+            error,
+        })
+    }
+}
+
 /// If a got <: want check fails, the failure reason
 #[derive(Debug, Clone)]
 pub enum SubsetError {
+    /// A callable subset check failed in the given part of the signature.
+    Callable(Box<CallableSubsetError>),
     /// The name of a positional parameter differs between `got` and `want`.
     PosParamName(Name, Name),
     /// `got` does not accept positional parameters that `want` allows callers to pass.
@@ -3169,8 +3204,38 @@ pub enum SubsetError {
 }
 
 impl SubsetError {
+    /// The underlying failure, looking through the callable signature parts that wrap it.
+    pub fn cause(&self) -> &SubsetError {
+        match self {
+            SubsetError::Callable(err) => match &**err {
+                CallableSubsetError::Params(ParamsSubsetError { error, .. })
+                | CallableSubsetError::Return(error) => error.cause(),
+            },
+            _ => self,
+        }
+    }
+
+    /// Shift the parameter indices of a callable subset error, to account for receivers that
+    /// binding stripped from the `got` and `want` signatures before the check.
+    pub(crate) fn with_receivers(self, got_receivers: usize, want_receivers: usize) -> Self {
+        match self {
+            SubsetError::Callable(mut err) => {
+                if let CallableSubsetError::Params(params) = &mut *err {
+                    params.got_index = params.got_index.map(|i| i + got_receivers);
+                    params.want_index = params.want_index.map(|i| i + want_receivers);
+                }
+                SubsetError::Callable(err)
+            }
+            err => err,
+        }
+    }
+
     pub fn to_error_msg(self, env: &dyn TypeEnv) -> Option<String> {
         match self {
+            SubsetError::Callable(err) => match *err {
+                CallableSubsetError::Params(ParamsSubsetError { error, .. })
+                | CallableSubsetError::Return(error) => error.to_error_msg(env),
+            },
             SubsetError::PosParamName(got, want) => Some(format!(
                 "Positional parameter name mismatch: got `{got}`, want `{want}`"
             )),

@@ -8,6 +8,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::iter;
+use std::ptr;
 
 use itertools::EitherOrBoth;
 use itertools::Itertools;
@@ -34,6 +35,7 @@ use pyrefly_types::typed_dict::ExtraItem;
 use pyrefly_types::typed_dict::ExtraItems;
 use pyrefly_types::typed_dict::TypedDictField;
 use pyrefly_types::types::BoundMethod;
+use pyrefly_types::types::BoundMethodType;
 use pyrefly_types::types::Forall;
 use pyrefly_types::types::Overload;
 use pyrefly_types::types::OverloadType;
@@ -54,8 +56,10 @@ use crate::alt::types::class_metadata::ProtocolMetadata;
 use crate::solver::shape::has_int_tuple_bound;
 use crate::solver::shape::type_as_intvar_solution;
 use crate::solver::solver::ArgumentSide;
+use crate::solver::solver::CallableSubsetError;
 use crate::solver::solver::MatchedArgument;
 use crate::solver::solver::OpenTypedDictSubsetError;
+use crate::solver::solver::ParamsSubsetError;
 use crate::solver::solver::QuantifiedHandle;
 use crate::solver::solver::Subset;
 use crate::solver::solver::SubsetCacheEntry;
@@ -207,6 +211,47 @@ fn any<T>(
     Err(err.unwrap_or(SubsetError::Other))
 }
 
+/// The `got` and `want` parameter lists of a parameter list subset check.
+#[derive(Clone, Copy)]
+struct ParamLists<'a> {
+    got: &'a [Param],
+    want: &'a [Param],
+}
+
+impl ParamLists<'_> {
+    /// Attribute `error` to the parameters `got` and `want`, which are elements of the lists.
+    fn error_at(
+        self,
+        got: Option<&Param>,
+        want: Option<&Param>,
+        error: SubsetError,
+    ) -> Box<ParamsSubsetError> {
+        let index = |params: &[Param], param: Option<&Param>| {
+            param.map(|param| {
+                params
+                    .iter()
+                    .position(|p| ptr::eq(p, param))
+                    .expect("param should be an element of its parameter list")
+            })
+        };
+        Box::new(ParamsSubsetError {
+            got_index: index(self.got, got),
+            want_index: index(self.want, want),
+            error,
+        })
+    }
+}
+
+/// The number of parameters that binding strips from the signature of `method`.
+fn bound_receiver_count(method: &BoundMethod) -> usize {
+    match &method.func {
+        BoundMethodType::Function(func) => func.signature.bound_receiver_count(),
+        BoundMethodType::Forall(forall) => forall.body.signature.bound_receiver_count(),
+        // Overload subset failures do not carry parameter indices.
+        BoundMethodType::Overload(_) => 0,
+    }
+}
+
 struct FreshForall {
     handle: QuantifiedHandle,
     ty: Type,
@@ -272,12 +317,16 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
     /// other parameters of `l_args` do not match.
     fn is_subset_param_list(
         &mut self,
-        l_args: &[Param],
-        u_args: &[Param],
+        l_params: &[Param],
+        u_params: &[Param],
         u_gradual: bool,
-    ) -> Result<(), SubsetError> {
-        let mut l_args = l_args.iter();
-        let mut u_args = u_args.iter();
+    ) -> Result<(), Box<ParamsSubsetError>> {
+        let lists = ParamLists {
+            got: l_params,
+            want: u_params,
+        };
+        let mut l_args = l_params.iter();
+        let mut u_args = u_params.iter();
         let mut l_arg = l_args.next();
         let mut u_arg = u_args.next();
         // This holds any Param::Pos from `u` that matched *args from `l`.
@@ -308,7 +357,8 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
                     Some(Param::PosOnly(_, l, l_req) | Param::Pos(_, l, l_req)),
                     Some(Param::PosOnly(_, u, u_req)),
                 ) if (*u_req == Required::Required || matches!(l_req, Required::Optional(_))) => {
-                    self.is_subset_eq(u, l)?;
+                    self.is_subset_eq(u, l)
+                        .map_err(|e| lists.error_at(l_arg, u_arg, e))?;
                     l_arg = l_args.next();
                     u_arg = u_args.next();
                 }
@@ -316,18 +366,25 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
                     if *u_req == Required::Required || matches!(l_req, Required::Optional(_)) =>
                 {
                     if l_name != u_name {
-                        return Err(SubsetError::PosParamName(l_name.clone(), u_name.clone()));
+                        return Err(lists.error_at(
+                            l_arg,
+                            u_arg,
+                            SubsetError::PosParamName(l_name.clone(), u_name.clone()),
+                        ));
                     }
-                    self.is_subset_eq(u, l)?;
+                    self.is_subset_eq(u, l)
+                        .map_err(|e| lists.error_at(l_arg, u_arg, e))?;
                     l_arg = l_args.next();
                     u_arg = u_args.next();
                 }
                 (Some(Param::Varargs(_, Type::Unpack(l, ..))), None) => {
-                    self.is_subset_eq(&self.solver.heap.mk_concrete_tuple(Vec::new()), l)?;
+                    self.is_subset_eq(&self.solver.heap.mk_concrete_tuple(Vec::new()), l)
+                        .map_err(|e| lists.error_at(l_arg, None, e))?;
                     l_arg = l_args.next();
                 }
                 (None, Some(Param::Varargs(_, Type::Unpack(u, ..)))) => {
-                    self.is_subset_eq(&self.solver.heap.mk_concrete_tuple(Vec::new()), u)?;
+                    self.is_subset_eq(&self.solver.heap.mk_concrete_tuple(Vec::new()), u)
+                        .map_err(|e| lists.error_at(None, u_arg, e))?;
                     u_arg = u_args.next();
                 }
                 (
@@ -353,6 +410,7 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
                     Some(Param::Varargs(_, Type::Unpack(l, ..))),
                     Some(Param::PosOnly(_, _, Required::Required)),
                 ) => {
+                    let u_first = u_arg;
                     let mut u_types = Vec::new();
                     loop {
                         if let Some(Param::PosOnly(_, u, Required::Required)) = u_arg {
@@ -366,7 +424,8 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
                                     Vec::new(),
                                 ),
                                 l,
-                            )?;
+                            )
+                            .map_err(|e| lists.error_at(l_arg, u_first, e))?;
                             l_arg = l_args.next();
                             u_arg = u_args.next();
                             break;
@@ -378,12 +437,14 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
                                     Vec::new(),
                                 ),
                                 l,
-                            )?;
+                            )
+                            .map_err(|e| lists.error_at(l_arg, u_first, e))?;
                             l_arg = l_args.next();
                             u_arg = u_args.next();
                             break;
                         } else {
-                            self.is_subset_eq(&self.solver.heap.mk_concrete_tuple(u_types), l)?;
+                            self.is_subset_eq(&self.solver.heap.mk_concrete_tuple(u_types), l)
+                                .map_err(|e| lists.error_at(l_arg, u_first, e))?;
                             l_arg = l_args.next();
                             break;
                         }
@@ -393,6 +454,7 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
                     Some(Param::PosOnly(_, _, _) | Param::Pos(_, _, _)),
                     Some(Param::Varargs(_, Type::Unpack(u, ..))),
                 ) => {
+                    let l_first = l_arg;
                     let mut l_types = Vec::new();
                     let mut l_optional_prefixes = Vec::new();
                     loop {
@@ -414,7 +476,8 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
                                 (**l).clone(),
                                 Vec::new(),
                             );
-                            self.is_subset_optional_prefixes(u, l_optional_prefixes, full)?;
+                            self.is_subset_optional_prefixes(u, l_optional_prefixes, full)
+                                .map_err(|e| lists.error_at(l_first, u_arg, e))?;
                             l_arg = l_args.next();
                             u_arg = u_args.next();
                             break;
@@ -424,13 +487,15 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
                                 self.solver.heap.mk_unbounded_tuple(l.clone()),
                                 Vec::new(),
                             );
-                            self.is_subset_optional_prefixes(u, l_optional_prefixes, full)?;
+                            self.is_subset_optional_prefixes(u, l_optional_prefixes, full)
+                                .map_err(|e| lists.error_at(l_first, u_arg, e))?;
                             l_arg = l_args.next();
                             u_arg = u_args.next();
                             break;
                         } else {
                             let full = self.solver.heap.mk_concrete_tuple(l_types);
-                            self.is_subset_optional_prefixes(u, l_optional_prefixes, full)?;
+                            self.is_subset_optional_prefixes(u, l_optional_prefixes, full)
+                                .map_err(|e| lists.error_at(l_first, u_arg, e))?;
                             u_arg = u_args.next();
                             break;
                         }
@@ -443,18 +508,21 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
                     // `u`'s unpacked `*args` has no positionals left to consume (l's remaining
                     // params are keyword-only / **kwargs), so the TypeVarTuple binds to the empty
                     // tuple. Keep `l_arg` so its keyword params match the rest of `u` below.
-                    self.is_subset_eq(&self.solver.heap.mk_concrete_tuple(Vec::new()), u)?;
+                    self.is_subset_eq(&self.solver.heap.mk_concrete_tuple(Vec::new()), u)
+                        .map_err(|e| lists.error_at(None, u_arg, e))?;
                     u_arg = u_args.next();
                 }
                 (Some(Param::Varargs(_, l)), Some(Param::PosOnly(_, u, _))) => {
-                    self.is_subset_eq(u, l)?;
+                    self.is_subset_eq(u, l)
+                        .map_err(|e| lists.error_at(l_arg, u_arg, e))?;
                     u_arg = u_args.next();
                 }
-                (Some(Param::Varargs(_, l)), Some(Param::Pos(name, u, _))) => {
+                (Some(Param::Varargs(_, l)), Some(u_param @ Param::Pos(name, u, _))) => {
                     // Param::Pos can be passed positionally or by name, so if it matches *args
                     // we need to make sure it matches an optional kw-only argument or *kwargs
-                    self.is_subset_eq(u, l)?;
-                    u_param_matched_with_l_varargs.push((name, u));
+                    self.is_subset_eq(u, l)
+                        .map_err(|e| lists.error_at(l_arg, u_arg, e))?;
+                    u_param_matched_with_l_varargs.push((name, u, u_param));
                     u_arg = u_args.next();
                 }
                 (
@@ -464,7 +532,8 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
                     self.is_subset_eq(
                         canonical_vararg_unpack_inner(u, l),
                         canonical_vararg_unpack_inner(l, u),
-                    )?;
+                    )
+                    .map_err(|e| lists.error_at(l_arg, u_arg, e))?;
                     l_arg = l_args.next();
                     u_arg = u_args.next();
                 }
@@ -479,22 +548,26 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
                     Some(Param::Varargs(_, l @ Type::Var(_))),
                     Some(Param::Varargs(_, u @ Type::Unpack(..))),
                 ) => {
-                    self.is_subset_eq(u, l)?;
+                    self.is_subset_eq(u, l)
+                        .map_err(|e| lists.error_at(l_arg, u_arg, e))?;
                     l_arg = l_args.next();
                     u_arg = u_args.next();
                 }
                 (Some(Param::Varargs(_, l)), Some(Param::Varargs(_, Type::Unpack(u, ..)))) => {
-                    self.is_subset_eq(u, &self.solver.heap.mk_unbounded_tuple(l.clone()))?;
+                    self.is_subset_eq(u, &self.solver.heap.mk_unbounded_tuple(l.clone()))
+                        .map_err(|e| lists.error_at(l_arg, u_arg, e))?;
                     l_arg = l_args.next();
                     u_arg = u_args.next();
                 }
                 (Some(Param::Varargs(_, Type::Unpack(l, ..))), Some(Param::Varargs(_, u))) => {
-                    self.is_subset_eq(&self.solver.heap.mk_unbounded_tuple(u.clone()), l)?;
+                    self.is_subset_eq(&self.solver.heap.mk_unbounded_tuple(u.clone()), l)
+                        .map_err(|e| lists.error_at(l_arg, u_arg, e))?;
                     l_arg = l_args.next();
                     u_arg = u_args.next();
                 }
                 (Some(Param::Varargs(_, l)), Some(Param::Varargs(_, u))) => {
-                    self.is_subset_eq(u, l)?;
+                    self.is_subset_eq(u, l)
+                        .map_err(|e| lists.error_at(l_arg, u_arg, e))?;
                     l_arg = l_args.next();
                     u_arg = u_args.next();
                 }
@@ -508,31 +581,41 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
                             _ => None,
                         }))
                         .collect();
-                    return Err(SubsetError::CallableMissingPositionalParameters(missing));
+                    return Err(lists.error_at(
+                        None,
+                        u_arg,
+                        SubsetError::CallableMissingPositionalParameters(missing),
+                    ));
                 }
-                _ => return Err(SubsetError::Other),
+                _ => return Err(lists.error_at(l_arg, u_arg, SubsetError::Other)),
             }
         }
         // We can use a HashMap for `l_keywords` since the order does not matter
         let mut l_keywords = HashMap::new();
-        let mut l_kwargs = None;
+        let mut l_kwargs_param = None;
         for arg in Option::into_iter(l_arg).chain(l_args) {
             match arg {
                 Param::KwOnly(name, ty, required) | Param::Pos(name, ty, required) => {
-                    l_keywords.insert(name.clone(), (ty.clone(), *required == Required::Required));
+                    l_keywords.insert(
+                        name.clone(),
+                        (ty.clone(), *required == Required::Required, arg),
+                    );
                 }
-                Param::Kwargs(_, ty) => l_kwargs = Some(ty.clone()),
+                Param::Kwargs(..) => l_kwargs_param = Some(arg),
                 _ => (),
             }
         }
         let mut u_keywords = SmallMap::new();
-        let mut u_kwargs = None;
+        let mut u_kwargs_param = None;
         for arg in Option::into_iter(u_arg).chain(u_args) {
             match arg {
                 Param::KwOnly(name, ty, required) => {
-                    u_keywords.insert(name.clone(), (ty.clone(), *required == Required::Required));
+                    u_keywords.insert(
+                        name.clone(),
+                        (ty.clone(), *required == Required::Required, arg),
+                    );
                 }
-                Param::Kwargs(_, ty) => u_kwargs = Some(ty.clone()),
+                Param::Kwargs(..) => u_kwargs_param = Some(arg),
                 _ => (),
             }
         }
@@ -544,113 +627,116 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
         // `UnpackKind::Kwargs` is produced only for a `**kwargs: Unpack[TD]` annotation, and
         // `validate_type_form` has already rejected any inner type that is not a TypedDict, so
         // these arms do not need to consult class metadata to recognize one.
-        let l_kwargs = match (l_kwargs, u_kwargs) {
-            (Some(l @ Type::Var(_)), Some(ref u @ Type::Unpack(_, UnpackKind::Kwargs)))
-                if l_keywords.is_empty() =>
-            {
-                self.is_subset_eq(u, &l)?;
+        // Keyword parameters expanded from a TypedDict are attributed to its `**kwargs`.
+        let l_kwargs = match (l_kwargs_param, u_kwargs_param) {
+            (
+                Some(Param::Kwargs(_, l @ Type::Var(_))),
+                Some(Param::Kwargs(_, u @ Type::Unpack(_, UnpackKind::Kwargs))),
+            ) if l_keywords.is_empty() => {
+                self.is_subset_eq(u, l)
+                    .map_err(|e| lists.error_at(l_kwargs_param, u_kwargs_param, e))?;
                 Some(object_type)
             }
             (
-                Some(Type::Unpack(l_inner, UnpackKind::Kwargs)),
-                Some(Type::Unpack(u_inner, UnpackKind::Kwargs)),
-            ) if matches!(
-                (&*l_inner, &*u_inner),
-                (Type::ClassType(_), Type::ClassType(_))
-            ) =>
+                Some(l_param @ Param::Kwargs(_, Type::Unpack(l_inner, UnpackKind::Kwargs))),
+                Some(u_param @ Param::Kwargs(_, Type::Unpack(u_inner, UnpackKind::Kwargs))),
+            ) if let (Type::ClassType(l_typed_dict), Type::ClassType(u_typed_dict)) =
+                (&**l_inner, &**u_inner) =>
             {
-                let (Type::ClassType(l_typed_dict), Type::ClassType(u_typed_dict)) =
-                    (*l_inner, *u_inner)
-                else {
-                    unreachable!("guarded by matches! above")
-                };
-                for (name, ty, required) in self.type_order.typed_dict_kw_param_info(&l_typed_dict)
-                {
-                    l_keywords.insert(name, (ty, required == Required::Required));
+                for (name, ty, required) in self.type_order.typed_dict_kw_param_info(l_typed_dict) {
+                    l_keywords.insert(name, (ty, required == Required::Required, l_param));
                 }
-                for (name, ty, required) in self.type_order.typed_dict_kw_param_info(&u_typed_dict)
-                {
-                    u_keywords.insert(name, (ty, required == Required::Required));
+                for (name, ty, required) in self.type_order.typed_dict_kw_param_info(u_typed_dict) {
+                    u_keywords.insert(name, (ty, required == Required::Required, u_param));
                 }
                 Some(object_type)
             }
-            (Some(Type::Unpack(l_inner, UnpackKind::Kwargs)), _)
-                if matches!(*l_inner, Type::ClassType(_)) =>
+            (Some(l_param @ Param::Kwargs(_, Type::Unpack(l_inner, UnpackKind::Kwargs))), _)
+                if let Type::ClassType(l_typed_dict) = &**l_inner =>
             {
-                let Type::ClassType(l_typed_dict) = *l_inner else {
-                    unreachable!("guarded by matches! above")
-                };
-                for (name, ty, required) in self.type_order.typed_dict_kw_param_info(&l_typed_dict)
-                {
-                    l_keywords.insert(name, (ty, required == Required::Required));
+                for (name, ty, required) in self.type_order.typed_dict_kw_param_info(l_typed_dict) {
+                    l_keywords.insert(name, (ty, required == Required::Required, l_param));
                 }
                 Some(object_type)
             }
-            (l_kwargs, Some(Type::Unpack(u_inner, UnpackKind::Kwargs)))
-                if matches!(*u_inner, Type::ClassType(_)) =>
-            {
-                let Type::ClassType(u_typed_dict) = *u_inner else {
-                    unreachable!("guarded by matches! above")
-                };
+            (
+                l_kwargs_param,
+                Some(u_param @ Param::Kwargs(_, Type::Unpack(u_inner, UnpackKind::Kwargs))),
+            ) if let Type::ClassType(u_typed_dict) = &**u_inner => {
                 // Allow expanding Unpack[TypedDict] kwargs against explicit keyword params
                 // only when the other side also has **kwargs or the TypedDict is closed.
-                if l_kwargs.is_none()
+                if l_kwargs_param.is_none()
                     && !matches!(
-                        self.type_order.typed_dict_extra_items(&u_typed_dict),
+                        self.type_order.typed_dict_extra_items(u_typed_dict),
                         ExtraItems::Closed
                     )
                 {
-                    return Err(SubsetError::OpenTypedDictKwargs(
-                        u_typed_dict.name(&self.type_order).clone(),
+                    return Err(lists.error_at(
+                        None,
+                        Some(u_param),
+                        SubsetError::OpenTypedDictKwargs(
+                            u_typed_dict.name(&self.type_order).clone(),
+                        ),
                     ));
                 }
-                for (name, ty, required) in self.type_order.typed_dict_kw_param_info(&u_typed_dict)
-                {
-                    u_keywords.insert(name, (ty, required == Required::Required));
+                for (name, ty, required) in self.type_order.typed_dict_kw_param_info(u_typed_dict) {
+                    u_keywords.insert(name, (ty, required == Required::Required, u_param));
                 }
-                l_kwargs
+                l_kwargs_param.map(|l_param| l_param.as_type().clone())
             }
-            (Some(l), Some(u)) => {
-                self.is_subset_eq(&u, &l)?;
-                Some(l)
+            (Some(l_param), Some(u_param)) => {
+                self.is_subset_eq(u_param.as_type(), l_param.as_type())
+                    .map_err(|e| lists.error_at(l_kwargs_param, u_kwargs_param, e))?;
+                Some(l_param.as_type().clone())
             }
             // The gradual `**kwargs` of `u` stands for any remaining keyword parameters of `l`.
             (None, Some(_)) if !u_gradual => {
-                return Err(SubsetError::Other);
+                return Err(lists.error_at(None, u_kwargs_param, SubsetError::Other));
             }
-            (l_kwargs, _) => l_kwargs,
+            (l_kwargs_param, _) => l_kwargs_param.map(|l_param| l_param.as_type().clone()),
         };
         // These parameters from `u` may be passed by name or position. We matched the positional
         // case with *args from `l` already; now we check that they can be passed by name.
-        for (name, u_ty) in u_param_matched_with_l_varargs {
-            if let Some((l_ty, l_req)) = l_keywords.remove(name) {
+        for (name, u_ty, u_param) in u_param_matched_with_l_varargs {
+            if let Some((l_ty, l_req, l_param)) = l_keywords.remove(name) {
                 // Matched kw-only param from `l` must be optional, since the argument will not be
                 // present if passed positionally.
                 if l_req {
-                    return Err(SubsetError::Other);
+                    return Err(lists.error_at(Some(l_param), Some(u_param), SubsetError::Other));
                 }
-                self.is_subset_eq(u_ty, &l_ty)?;
+                self.is_subset_eq(u_ty, &l_ty)
+                    .map_err(|e| lists.error_at(Some(l_param), Some(u_param), e))?;
             } else if let Some(l_ty) = &l_kwargs {
-                self.is_subset_eq(u_ty, l_ty)?;
+                self.is_subset_eq(u_ty, l_ty)
+                    .map_err(|e| lists.error_at(l_kwargs_param, Some(u_param), e))?;
             } else {
-                return Err(SubsetError::Other);
+                return Err(lists.error_at(None, Some(u_param), SubsetError::Other));
             }
         }
         // Handle keyword-only args
-        for (name, (u_ty, u_req)) in u_keywords.iter() {
-            if let Some((l_ty, l_req)) = l_keywords.remove(name) {
+        for (name, (u_ty, u_req, u_param)) in u_keywords.iter() {
+            if let Some((l_ty, l_req, l_param)) = l_keywords.remove(name) {
                 if !*u_req && l_req {
-                    return Err(SubsetError::Other);
+                    return Err(lists.error_at(Some(l_param), Some(u_param), SubsetError::Other));
                 }
-                self.is_subset_eq(u_ty, &l_ty)?;
+                self.is_subset_eq(u_ty, &l_ty)
+                    .map_err(|e| lists.error_at(Some(l_param), Some(u_param), e))?;
             } else if let Some(l_ty) = &l_kwargs {
-                self.is_subset_eq(u_ty, l_ty)?;
+                self.is_subset_eq(u_ty, l_ty)
+                    .map_err(|e| lists.error_at(l_kwargs_param, Some(u_param), e))?;
             } else {
-                return Err(SubsetError::Other);
+                return Err(lists.error_at(None, Some(u_param), SubsetError::Other));
             }
         }
-        if !u_gradual && l_keywords.values().any(|(_, l_req)| *l_req) {
-            return Err(SubsetError::Other);
+        // Report the first required keyword parameter of `l` that `u` does not provide.
+        if !u_gradual
+            && let Some(error) = l_keywords
+                .values()
+                .filter(|(_, l_req, _)| *l_req)
+                .map(|(_, _, l_param)| lists.error_at(Some(l_param), None, SubsetError::Other))
+                .min_by_key(|error| error.got_index)
+        {
+            return Err(error);
         }
         Ok(())
     }
@@ -663,14 +749,14 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
         u_params: &Params,
         l_gradual: bool,
         u_gradual: bool,
-    ) -> Result<(), SubsetError> {
+    ) -> Result<(), Box<ParamsSubsetError>> {
         match (l_params, u_params) {
-            (Params::Ellipsis, Params::ParamSpec(_, pspec)) => {
-                self.is_subset_eq(&Type::Ellipsis, pspec)
-            }
-            (Params::ParamSpec(_, pspec), Params::Ellipsis) => {
-                self.is_subset_eq(pspec, &Type::Ellipsis)
-            }
+            (Params::Ellipsis, Params::ParamSpec(_, pspec)) => self
+                .is_subset_eq(&Type::Ellipsis, pspec)
+                .map_err(ParamsSubsetError::unattributed),
+            (Params::ParamSpec(_, pspec), Params::Ellipsis) => self
+                .is_subset_eq(pspec, &Type::Ellipsis)
+                .map_err(ParamsSubsetError::unattributed),
             (Params::Ellipsis, u_params) => {
                 // Parameters are contravariant, so materializing `got` as Unknown variadics
                 // records Unknown bounds for inference variables in `want`.
@@ -680,6 +766,11 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
                     true,
                     u_gradual,
                 )
+                // The materialized parameters do not appear in `got`.
+                .map_err(|mut e| {
+                    e.got_index = None;
+                    e
+                })
             }
             // An ellipsis in `want` provides no contextual parameter types, so it must not
             // constrain inference variables in `got`.
@@ -696,16 +787,18 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
                 Params::List(l_args) | Params::Partial(l_args),
                 Params::List(u_args) | Params::Partial(u_args),
             ) => self.is_subset_param_list(l_args.items(), u_args.items(), u_gradual),
-            (Params::List(ls) | Params::Partial(ls), Params::ParamSpec(args, pspec)) => {
-                self.is_paramlist_subset_of_paramspec(ls, l_gradual, args, pspec)
+            (Params::List(ls) | Params::Partial(ls), Params::ParamSpec(args, pspec)) => self
+                .is_paramlist_subset_of_paramspec(ls, l_gradual, args, pspec)
+                .map_err(ParamsSubsetError::unattributed),
+            (Params::ParamSpec(args, pspec), Params::List(ls) | Params::Partial(ls)) => self
+                .is_paramspec_subset_of_paramlist(args, pspec, ls, u_gradual)
+                .map_err(ParamsSubsetError::unattributed),
+            (Params::ParamSpec(ls, p1), Params::ParamSpec(us, p2)) => self
+                .is_paramspec_subset_of_paramspec(ls, p1, us, p2)
+                .map_err(ParamsSubsetError::unattributed),
+            (Params::Materialization, _) => {
+                Err(ParamsSubsetError::unattributed(SubsetError::Other))
             }
-            (Params::ParamSpec(args, pspec), Params::List(ls) | Params::Partial(ls)) => {
-                self.is_paramspec_subset_of_paramlist(args, pspec, ls, u_gradual)
-            }
-            (Params::ParamSpec(ls, p1), Params::ParamSpec(us, p2)) => {
-                self.is_paramspec_subset_of_paramspec(ls, p1, us, p2)
-            }
-            (Params::Materialization, _) => Err(SubsetError::Other),
             (_, Params::Materialization) => {
                 // `everything()` is the gradual `*args: Any, **kwargs: Any` list.
                 self.is_subset_params(
@@ -714,6 +807,11 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
                     l_gradual,
                     !self.solver.config.strict_callable_subtyping,
                 )
+                // The materialized parameters do not appear in `want`.
+                .map_err(|mut e| {
+                    e.want_index = None;
+                    e
+                })
             }
         }
     }
@@ -1137,10 +1235,12 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
         let Some((pre, post)) = split_for_prefix(got.items(), args.len()) else {
             // Run the regular parameter matcher first so it can distinguish a type mismatch
             // from parameters that are genuinely absent.
-            self.is_subset_param_list(got.items(), &args, false)?;
+            self.is_subset_param_list(got.items(), &args, false)
+                .map_err(|e| e.error)?;
             return Err(SubsetError::Other);
         };
-        self.is_subset_param_list(pre, &args, false)?;
+        self.is_subset_param_list(pre, &args, false)
+            .map_err(|e| e.error)?;
         self.is_subset_eq(&self.param_spec_remainder(post, got_gradual), want_pspec)
     }
 
@@ -1155,7 +1255,8 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
         let Some((pre, post)) = split_for_prefix(want.items(), args.len()) else {
             return Err(SubsetError::Other);
         };
-        self.is_subset_param_list(&args, pre, want_gradual)?;
+        self.is_subset_param_list(&args, pre, want_gradual)
+            .map_err(|e| e.error)?;
         self.is_subset_eq(got_pspec, &self.param_spec_remainder(post, want_gradual))
     }
 
@@ -2332,17 +2433,20 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
                 if let Some(l_no_self) = self.bind_boundmethod(method) =>
             {
                 self.is_subset_eq(&l_no_self, want)
+                    .map_err(|e| e.with_receivers(bound_receiver_count(method), 0))
             }
             (Type::Callable(_) | Type::Function(_), Type::BoundMethod(method))
                 if let Some(u_no_self) = self.bind_boundmethod(method) =>
             {
                 self.is_subset_eq(got, &u_no_self)
+                    .map_err(|e| e.with_receivers(0, bound_receiver_count(method)))
             }
             (Type::BoundMethod(l), Type::BoundMethod(u))
                 if let Some(l_no_self) = self.bind_boundmethod(l)
                     && let Some(u_no_self) = self.bind_boundmethod(u) =>
             {
                 self.is_subset_eq(&l_no_self, &u_no_self)
+                    .map_err(|e| e.with_receivers(bound_receiver_count(l), bound_receiver_count(u)))
             }
             (Type::BoundMethod(l), Type::BoundMethod(u)) => {
                 self.is_subset_eq(&l.func.clone().as_type(), &u.func.clone().as_type())
@@ -2368,8 +2472,10 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
                             .with_argument_side(argument_side.negated()),
                     ),
                     |me| me.is_subset_params(&l_sig.params, &u_sig.params, l_gradual, u_gradual),
-                )?;
+                )
+                .map_err(|e| SubsetError::Callable(Box::new(CallableSubsetError::Params(*e))))?;
                 self.is_subset_eq(&l_sig.ret, &u_sig.ret)
+                    .map_err(|e| SubsetError::Callable(Box::new(CallableSubsetError::Return(e))))
             }
             (Type::AnonymousTypedDict(got), Type::ClassType(want))
                 if self.type_order.is_typed_dict_class(want.class_object()) =>
@@ -2993,11 +3099,13 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
             ),
             (Type::Ellipsis, Type::ParamSpecValue(_) | Type::Concatenate(_, _))
             | (Type::ParamSpecValue(_) | Type::Concatenate(_, _), Type::Ellipsis) => Ok(()),
-            (Type::ParamSpecValue(ls), Type::ParamSpecValue(us)) => self.is_subset_param_list(
-                ls.items(),
-                us.items(),
-                self.params_have_gradual_tail(us.items()),
-            ),
+            (Type::ParamSpecValue(ls), Type::ParamSpecValue(us)) => self
+                .is_subset_param_list(
+                    ls.items(),
+                    us.items(),
+                    self.params_have_gradual_tail(us.items()),
+                )
+                .map_err(|e| e.error),
             (Type::ParamSpecValue(ls), Type::Concatenate(us, u_pspec)) => self
                 .is_paramlist_subset_of_paramspec(
                     ls,

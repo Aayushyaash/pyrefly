@@ -767,6 +767,19 @@ impl Callable {
         }
     }
 
+    /// The number of leading parameters that `split_first_param` removes.
+    pub fn bound_receiver_count(&self) -> usize {
+        match &self.params {
+            Params::List(params) | Params::Partial(params) => match params.0.first() {
+                // A receiver passed through `*args` leaves the parameters unchanged.
+                Some(Param::Varargs(..)) | None => 0,
+                Some(_) => 1,
+            },
+            Params::ParamSpec(prefix, _) => usize::from(!prefix.is_empty()),
+            Params::Ellipsis | Params::Materialization => 0,
+        }
+    }
+
     pub fn get_first_param(&self) -> Option<&Type> {
         match &self.params {
             Params::List(params) | Params::Partial(params) => {

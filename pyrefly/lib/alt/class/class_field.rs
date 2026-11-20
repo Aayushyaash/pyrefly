@@ -4882,18 +4882,14 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 Err(ref e)
                     if let (Some((child, parent)), Some(got), Some(want)) = (
                         match &**e {
-                            AttrSubsetError::Covariant {
-                                subset_error: SubsetError::PosParamName(c, p),
-                                ..
+                            AttrSubsetError::Covariant { subset_error, .. }
+                            | AttrSubsetError::Invariant { subset_error, .. }
+                            | AttrSubsetError::Contravariant { subset_error, .. } => {
+                                match subset_error.cause() {
+                                    SubsetError::PosParamName(c, p) => Some((c, p)),
+                                    _ => None,
+                                }
                             }
-                            | AttrSubsetError::Invariant {
-                                subset_error: SubsetError::PosParamName(c, p),
-                                ..
-                            }
-                            | AttrSubsetError::Contravariant {
-                                subset_error: SubsetError::PosParamName(c, p),
-                                ..
-                            } => Some((c, p)),
                             _ => None,
                         },
                         match &**e {
