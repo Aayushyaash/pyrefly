@@ -875,6 +875,14 @@ mod tests {
     }
 
     #[test]
+    fn test_directive_inference_classification() {
+        assert!(ErrorKind::RevealType.is_directive());
+        assert_eq!(ErrorKind::RevealType.default_severity(), Severity::Info);
+        assert!(!ErrorKind::RevealType.is_soft());
+        assert!(!ErrorKind::BadArgumentType.is_soft());
+    }
+
+    #[test]
     fn test_suppressable_excludes_directives_and_unused_ignores() {
         assert!(!ErrorKind::RevealType.is_suppressable());
         assert!(!ErrorKind::UnusedIgnore.is_suppressable());

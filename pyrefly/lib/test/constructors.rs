@@ -313,6 +313,34 @@ def f(value: int, both: int | str) -> None:
 );
 
 testcase!(
+    bug = "reveal_type prevents constructor argument distribution",
+    test_constructor_union_distribution_reveal_type,
+    r#"
+from typing import Callable, assert_type, overload, reveal_type
+
+class A[T]:
+    def __init__(self, cb: Callable[[T], object], value: T) -> None: ...
+
+class B[T]:
+    def __init__(self, cb: Callable[[T], str], value: T) -> None: ...
+
+@overload
+def pick(cb: Callable[[int], object], value: int) -> int: ...
+@overload
+def pick(cb: Callable[[str], object], value: str) -> str: ...
+def pick(cb: Callable[..., object], value: int | str) -> int | str: ...
+
+def f(value: int | str) -> None:
+    without: A[int] | A[str] = A(lambda arg: arg, value)
+    with_reveal: A[int] | A[str] = A(lambda arg: reveal_type(arg), value)  # E: is not assignable to `A[int] | A[str]` # E: revealed type: int | str
+    keyword: A[int] | A[str] = A(value=value, cb=lambda arg: reveal_type(arg))  # E: is not assignable to `A[int] | A[str]` # E: revealed type: int | str
+    invalid: B[int] | B[str] = B(lambda arg: reveal_type(arg), value)  # E: is not assignable to `B[int] | B[str]` # E: is not assignable to parameter `cb` # E: revealed type: int | str
+    assert_type(pick(lambda arg: reveal_type(arg), value), int | str)  # E: revealed type: int # E: revealed type: str
+    assert_type(pick(lambda arg: reveal_type(arg), 1), int)  # E: revealed type: int
+"#,
+);
+
+testcase!(
     test_constructor_union_distribution_caller_bounds,
     r#"
 class A[T]:
