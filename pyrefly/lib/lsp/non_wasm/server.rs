@@ -3660,6 +3660,29 @@ impl Server {
         }
     }
 
+    /// All server commits must use these helpers: the lens gate precedes the state
+    /// write lock, so a starting lens reader never waits behind a writer.
+    fn commit_transaction<'a>(
+        &'a self,
+        transaction: CommittingTransaction<'a>,
+        telemetry: &mut TelemetryEvent,
+    ) {
+        let _lens_pause = self.pause_reference_code_lenses();
+        self.state.commit_transaction(transaction, Some(telemetry));
+    }
+
+    /// Preserve the committed snapshot for the caller without holding the lens gate.
+    fn commit_transaction_downgrade<'a>(
+        &'a self,
+        transaction: CommittingTransaction<'a>,
+        telemetry: &mut TelemetryEvent,
+        default_require: Require,
+    ) -> Transaction<'a> {
+        let _lens_pause = self.pause_reference_code_lenses();
+        self.state
+            .commit_transaction_downgrade(transaction, Some(telemetry), default_require)
+    }
+
     /// Validate open files and send errors to the LSP. In the case of an ongoing recheck
     /// (i.e., another transaction is already being committed or the state is locked for writing),
     /// we only update diagnostics for files that were not open at the start of the recheck
@@ -3678,10 +3701,7 @@ impl Server {
             self.validate_in_memory_for_transaction(transaction, telemetry, custom_thread_pool);
         match possibly_committable_transaction {
             Ok(transaction) => {
-                {
-                    let _lens_pause = self.pause_reference_code_lenses();
-                    self.state.commit_transaction(transaction, Some(telemetry));
-                }
+                self.commit_transaction(transaction, telemetry);
                 *self.currently_streaming_diagnostics_for_handles.write() = None;
                 let state_lock_blocked_start = Instant::now();
                 // In the case where we can commit transactions, `State` already has latest updates.
@@ -3889,17 +3909,9 @@ impl Server {
             cancellation_handle.cancel();
         }
 
-        // we have to run, not just commit to process updates
-        {
-            let _lens_pause = server.pause_reference_code_lenses();
-            server.state.run_with_committing_transaction(
-                transaction,
-                &[],
-                Require::Everything,
-                Some(telemetry_event),
-                None,
-            );
-        }
+        // We have to run, not just commit, to process updates.
+        transaction.as_mut().run(&[], Require::Everything, None);
+        server.commit_transaction(transaction, telemetry_event);
 
         *server.currently_streaming_diagnostics_for_handles.write() = None;
     }
@@ -3979,10 +3991,7 @@ impl Server {
         let validate_start = Instant::now();
         transaction.as_mut().run(&handles, Require::Indexing, None);
         telemetry.set_validate_duration(validate_start.elapsed());
-        {
-            let _lens_pause = self.pause_reference_code_lenses();
-            self.state.commit_transaction(transaction, Some(telemetry));
-        }
+        self.commit_transaction(transaction, telemetry);
 
         // After committing project population, send RecheckFinished to
         // the main event loop of the server. As a result, the server can do a revalidation of
@@ -4027,10 +4036,7 @@ impl Server {
             let validate_start = Instant::now();
             transaction.as_mut().run(&handles, Require::Indexing, None);
             telemetry.set_validate_duration(validate_start.elapsed());
-            {
-                let _lens_pause = self.pause_reference_code_lenses();
-                self.state.commit_transaction(transaction, Some(telemetry));
-            }
+            self.commit_transaction(transaction, telemetry);
             // After we finished a recheck asynchronously, we immediately send `RecheckFinished` to
             // the main event loop of the server. As a result, the server can do a revalidation of
             // all the in-memory files based on the fresh main State as soon as possible.
@@ -4838,12 +4844,7 @@ impl Server {
                     telemetry_event,
                     None,
                 );
-                {
-                    let _lens_pause = server.pause_reference_code_lenses();
-                    server
-                        .state
-                        .commit_transaction(transaction, Some(telemetry_event));
-                }
+                server.commit_transaction(transaction, telemetry_event);
                 if server.workspaces.diagnostic_mode(&path) == DiagnosticMode::Workspace
                     && path
                         .extension()
@@ -7570,11 +7571,10 @@ impl Server {
                         // `commit_transaction_downgrade` holds the state lock
                         // across the commit, so what it hands back is the state
                         // validated and solved just above.
-                        let _lens_pause = self.pause_reference_code_lenses();
                         (
-                            self.state.commit_transaction_downgrade(
+                            self.commit_transaction_downgrade(
                                 committable,
-                                Some(telemetry_event),
+                                telemetry_event,
                                 Require::Exports,
                             ),
                             false,

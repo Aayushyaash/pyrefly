@@ -97,6 +97,7 @@ impl CodeLensError {
 
 impl Server {
     /// Cancel the active lens and prevent new lens readers until the guard is dropped.
+    /// The single-consumer lens queue needs only one active request slot.
     pub(super) fn pause_reference_code_lenses(&self) -> MutexGuard<'_, Option<RequestId>> {
         let active = self.reference_code_lens_request.lock();
         if let Some(id) = active.as_ref()
