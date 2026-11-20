@@ -800,11 +800,10 @@ impl ErrorKind {
         !self.is_directive() && !self.is_unused_ignore()
     }
 
-    /// A soft error is a diagnostic that should not influence overload selection
-    /// or other type-inference decisions. The type check itself passed, but the
-    /// code pattern is suspicious.
+    /// A soft diagnostic or directive does not influence overload selection or inference.
     pub fn is_soft(self) -> bool {
-        self.default_severity() == Severity::Ignore
+        self.is_directive()
+            || self.default_severity() == Severity::Ignore
             || matches!(
                 self,
                 ErrorKind::Deprecated
@@ -878,7 +877,7 @@ mod tests {
     fn test_directive_inference_classification() {
         assert!(ErrorKind::RevealType.is_directive());
         assert_eq!(ErrorKind::RevealType.default_severity(), Severity::Info);
-        assert!(!ErrorKind::RevealType.is_soft());
+        assert!(ErrorKind::RevealType.is_soft());
         assert!(!ErrorKind::BadArgumentType.is_soft());
     }
 
