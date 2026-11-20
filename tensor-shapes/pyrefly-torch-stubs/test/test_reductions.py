@@ -29,7 +29,6 @@ def test_sum_dtype_preserves_reduced_shape() -> None:
 
 def test_var_mean_correction_shapes_and_values() -> None:
     tensor = torch.arange(24, dtype=torch.float64).reshape(2, 3, 4)
-    # E: Unexpected keyword
     variance, mean = torch.var_mean(tensor, dim=(1, 2), correction=0, keepdim=True)
     assert_shape(variance.shape, (2, 1, 1))
     assert_shape(mean.shape, (2, 1, 1))
@@ -37,13 +36,9 @@ def test_var_mean_correction_shapes_and_values() -> None:
     assert torch.allclose(
         variance.flatten(), torch.full((2,), 143.0 / 12.0, dtype=torch.float64)
     )
-    # E: No matching overload
     scalar_var, scalar_mean = torch.var_mean(tensor, correction=0)
-    # E: assert_shape
     assert_shape(scalar_var.shape, ())
-    # E: assert_shape
     assert_shape(scalar_mean.shape, ())
-    # E: Unexpected keyword
     default_var, default_mean = torch.var_mean(tensor, dim=-1, correction=None)
     legacy_var, legacy_mean = torch.var_mean(tensor, dim=-1, unbiased=True)
     assert_shape(default_var.shape, (2, 3))

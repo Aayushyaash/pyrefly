@@ -3706,6 +3706,20 @@ def var_mean[
     ...
 
 @overload
+def var_mean[
+    Shape: IntTuple,
+    Dim: Flag[builtins.int | tuple[builtins.int, ...] | None],
+    Keepdim: Flag[builtins.bool],
+](
+    input: Tensor[Shape],
+    dim: Dim = None,
+    *,
+    correction: builtins.float | None,
+    keepdim: Keepdim = False,
+) -> tuple[
+    Tensor[reduce_shape(Shape, Dim, Keepdim)], Tensor[reduce_shape(Shape, Dim, Keepdim)]
+]: ...
+@overload
 def std_mean[Shape: IntTuple](
     input: Tensor[Shape], unbiased: builtins.bool = True
 ) -> tuple[Tensor[[]], Tensor[[]]]:
