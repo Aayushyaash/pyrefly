@@ -554,7 +554,6 @@ class Child(Base):
     assert!(item.additional_text_edits.is_none());
 }
 
-// BUG: A newline in a preserved default splits the signature into the decorator edit.
 #[test]
 fn multiline_numeric_default() {
     let code = r#"class Base:
@@ -567,8 +566,11 @@ class Child(Base):
 "#;
     let (item, result) = complete(code, &[]);
     assert!(item.text_edit.is_some());
-    let (_, errors, _) = Ast::parse(&result, PySourceType::Python);
-    assert!(!errors.is_empty(), "{result}");
+    assert!(
+        result.contains("value: 'int' = -(\n        1\n    )"),
+        "{result}"
+    );
+    check_result(&result, &[]);
 }
 
 // BUG: Stub-only annotation dependencies are imported at runtime.

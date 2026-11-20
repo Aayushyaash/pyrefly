@@ -158,7 +158,7 @@ impl<'a, 'state> OverrideCompletion<'a, 'state> {
             renderer.text(" -> ");
             renderer.annotation(&function.signature.ret);
         }
-        let mut parts = renderer.into_parts();
+        let parts = renderer.into_parts();
         // Resolve the decorator only after a signature qualifies, once per request.
         let override_part = self
             .override_part
@@ -180,8 +180,14 @@ impl<'a, 'state> OverrideCompletion<'a, 'state> {
                     })
             })
             .as_ref()?;
-        parts.push(AnnotationPart::Text("\n@".to_owned()));
-        parts.push(override_part.clone());
+        let parts = [
+            AnnotationPart::Text("@".to_owned()),
+            override_part.clone(),
+            AnnotationPart::Text("\n".to_owned()),
+        ]
+        .into_iter()
+        .chain(parts)
+        .collect::<Vec<_>>();
         let rendered = self.annotations.render_parts(&parts)?;
         let answers = self.transaction.get_answers(self.handle)?;
         let fields = answers.bindings().get_class_fields(class.index())?;
@@ -191,10 +197,10 @@ impl<'a, 'state> OverrideCompletion<'a, 'state> {
         }) {
             return None;
         }
-        let (signature, decorator) = rendered
+        let (decorator, signature) = rendered
             .text
             .split_once('\n')
-            .expect("the signature and decorator have a newline separator");
+            .expect("the decorator is followed by a newline");
         let arguments = rest
             .iter()
             .map(|param| {
