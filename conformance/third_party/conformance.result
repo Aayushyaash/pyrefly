@@ -106,6 +106,7 @@
   "overloads_basic.py": [],
   "overloads_consistency.py": [],
   "overloads_definitions.py": [],
+  "overloads_definitions_stub.pyi": [],
   "overloads_evaluation.py": [],
   "protocols_class_objects.py": [],
   "protocols_definition.py": [],

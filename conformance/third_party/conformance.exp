@@ -10103,6 +10103,96 @@
       "stop_line": 232
     }
   ],
+  "overloads_definitions_stub.pyi": [
+    {
+      "code": -2,
+      "column": 5,
+      "concise_description": "Overloaded function needs at least two @overload declarations",
+      "description": "Overloaded function needs at least two @overload declarations",
+      "line": 14,
+      "name": "invalid-overload",
+      "severity": "error",
+      "stop_column": 10,
+      "stop_line": 14
+    },
+    {
+      "code": -2,
+      "column": 9,
+      "concise_description": "If `@staticmethod` is present on one overload, all overloads must have that decorator.",
+      "description": "If `@staticmethod` is present on one overload, all overloads must have that decorator.",
+      "line": 33,
+      "name": "invalid-overload",
+      "severity": "error",
+      "stop_column": 14,
+      "stop_line": 33
+    },
+    {
+      "code": -2,
+      "column": 9,
+      "concise_description": "If `@classmethod` is present on one overload, all overloads must have that decorator.",
+      "description": "If `@classmethod` is present on one overload, all overloads must have that decorator.",
+      "line": 44,
+      "name": "invalid-overload",
+      "severity": "error",
+      "stop_column": 14,
+      "stop_line": 44
+    },
+    {
+      "code": -2,
+      "column": 9,
+      "concise_description": "If an overloaded function has no implementation, `@final` should be applied to the first overload only.",
+      "description": "If an overloaded function has no implementation, `@final` should be applied to the first overload only.",
+      "line": 73,
+      "name": "invalid-overload",
+      "severity": "error",
+      "stop_column": 22,
+      "stop_line": 73
+    },
+    {
+      "code": -2,
+      "column": 9,
+      "concise_description": "If an overloaded function has no implementation, `@final` should be applied to the first overload only.",
+      "description": "If an overloaded function has no implementation, `@final` should be applied to the first overload only.",
+      "line": 86,
+      "name": "invalid-overload",
+      "severity": "error",
+      "stop_column": 24,
+      "stop_line": 86
+    },
+    {
+      "code": -2,
+      "column": 9,
+      "concise_description": "`final_method` is declared as final in parent class `Base`",
+      "description": "`final_method` is declared as final in parent class `Base`",
+      "line": 108,
+      "name": "bad-override",
+      "severity": "error",
+      "stop_column": 21,
+      "stop_line": 108
+    },
+    {
+      "code": -2,
+      "column": 9,
+      "concise_description": "Class member `Child.bad_override` is marked as an override, but no parent class has a matching attribute",
+      "description": "Class member `Child.bad_override` is marked as an override, but no parent class has a matching attribute",
+      "line": 122,
+      "name": "bad-override",
+      "severity": "error",
+      "stop_column": 21,
+      "stop_line": 122
+    },
+    {
+      "code": -2,
+      "column": 9,
+      "concise_description": "If an overloaded function has no implementation, `@override` should be applied to the first overload only.",
+      "description": "If an overloaded function has no implementation, `@override` should be applied to the first overload only.",
+      "line": 147,
+      "name": "invalid-overload",
+      "severity": "error",
+      "stop_column": 20,
+      "stop_line": 147
+    }
+  ],
   "overloads_evaluation.py": [
     {
       "code": -2,

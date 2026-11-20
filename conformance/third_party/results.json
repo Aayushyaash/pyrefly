@@ -1,6 +1,6 @@
 {
-  "total": 145,
-  "pass": 145,
+  "total": 146,
+  "pass": 146,
   "fail": 0,
   "pass_rate": 1.0,
   "differences": 0,
@@ -111,6 +111,7 @@
     "overloads_basic.py",
     "overloads_consistency.py",
     "overloads_definitions.py",
+    "overloads_definitions_stub.pyi",
     "overloads_evaluation.py",
     "protocols_class_objects.py",
     "protocols_definition.py",
