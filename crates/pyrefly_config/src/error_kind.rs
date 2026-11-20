@@ -111,6 +111,9 @@ pub enum ErrorKind {
     AbstractMethodCall,
     /// An `@abstractmethod` has a non-placeholder implementation.
     AbstractMethodWithImplementation,
+    /// A function decorator whose type or result contains a top-level explicit `Any`,
+    /// obscuring the decorated function's type.
+    AnyFunctionDecorator,
     /// Raised when an assert_type() call fails.
     AssertType,
     /// Raised when an assert_type() call fails because the actual type is a subtype of the
@@ -556,7 +559,8 @@ pub enum ErrorKind {
     UnsupportedOperation,
     /// A class decorator whose own type is `Any`, obscuring the decorated class type.
     UntypedClassDecorator,
-    /// A function decorator whose own type is `Any`, obscuring the decorated function type.
+    /// A function decorator whose type or result contains a top-level implicit `Any`,
+    /// obscuring the decorated function's type.
     UntypedFunctionDecorator,
     /// Import is missing an expected stubs package
     UntypedImport,
@@ -677,6 +681,7 @@ impl ErrorKind {
         // IMPORTANT: When updating these, also update error-kinds.mdx in the docs
         match self {
             ErrorKind::AbstractMethodWithImplementation => Severity::Ignore,
+            ErrorKind::AnyFunctionDecorator => Severity::Ignore,
             ErrorKind::AttributeAssignOnNever => Severity::Warn,
             ErrorKind::CoverageMissing => Severity::Warn,
             ErrorKind::CoveragePartial => Severity::Warn,

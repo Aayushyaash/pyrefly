@@ -3147,29 +3147,29 @@ class C: ...
 );
 
 testcase!(
-    test_untyped_function_decorator,
-    TestEnv::new().enable_untyped_function_decorator_error(),
+    test_any_function_decorator,
+    TestEnv::new().enable_any_function_decorator_error(),
     r#"
 from typing import Any
 
 my_decorator: Any = lambda f: f
 
-@my_decorator  # E: Untyped function decorator obscures the type of function `g`
+@my_decorator  # E: Function decorator with explicit `Any` obscures the type of function `g`
 def g() -> int:
     return 1
 "#,
 );
 
 testcase!(
-    test_untyped_method_decorator,
-    TestEnv::new().enable_untyped_function_decorator_error(),
+    test_any_method_decorator,
+    TestEnv::new().enable_any_function_decorator_error(),
     r#"
 from typing import Any
 
 my_decorator: Any = lambda f: f
 
 class C:
-    @my_decorator  # E: Untyped function decorator obscures the type of function `m`
+    @my_decorator  # E: Function decorator with explicit `Any` obscures the type of function `m`
     def m(self) -> int:
         return 1
 "#,
@@ -3238,7 +3238,9 @@ def g() -> int:
 
 testcase!(
     test_stacked_function_decorators_blame_first_unknown,
-    TestEnv::new().enable_untyped_function_decorator_error(),
+    TestEnv::new()
+        .enable_untyped_function_decorator_error()
+        .enable_any_function_decorator_error(),
     r#"
 from typing import Any, TypeVar
 
@@ -3260,7 +3262,7 @@ def g() -> int:
 
 # A decorator whose own type is `Any` is reported once, not again for its result.
 @typed
-@my_decorator  # E: Untyped function decorator obscures the type of function `h`
+@my_decorator  # E: Function decorator with explicit `Any` obscures the type of function `h`
 def h() -> int:
     return 1
 "#,
@@ -3312,14 +3314,14 @@ def g() -> int:
 );
 
 testcase!(
-    test_untyped_function_decorator_suppressed,
-    TestEnv::new().enable_untyped_function_decorator_error(),
+    test_any_function_decorator_suppressed,
+    TestEnv::new().enable_any_function_decorator_error(),
     r#"
 from typing import Any
 
 my_decorator: Any = lambda f: f
 
-@my_decorator  # pyrefly: ignore[untyped-function-decorator]
+@my_decorator  # pyrefly: ignore[any-function-decorator]
 def g() -> int:
     return 1
 "#,
@@ -3328,14 +3330,14 @@ def g() -> int:
 // https://github.com/pyrefly-org/pyrefly/issues/5682
 testcase!(
     test_any_function_decorator_explicit_return,
-    TestEnv::new().enable_untyped_function_decorator_error(),
+    TestEnv::new().enable_any_function_decorator_error(),
     r#"
 from typing import Any, assert_type
 
 def dec(value: Any) -> Any:
     return value
 
-@dec
+@dec  # E: Function decorator with explicit `Any` obscures the type of function `fn`
 def fn(value: int) -> None: ...
 
 assert_type(fn, Any)
@@ -3344,7 +3346,7 @@ assert_type(fn, Any)
 
 testcase!(
     test_any_function_decorator_callable_and_factory,
-    TestEnv::new().enable_untyped_function_decorator_error(),
+    TestEnv::new().enable_any_function_decorator_error(),
     r#"
 from typing import Any, Callable, assert_type
 
@@ -3355,11 +3357,11 @@ class Decorator:
 def factory() -> Callable[[Any], Any]:
     return Decorator()
 
-@Decorator()
+@Decorator()  # E: Function decorator with explicit `Any` obscures the type of function `f`
 def f(value: int) -> int: ...
 
 class C:
-    @factory()
+    @factory()  # E: Function decorator with explicit `Any` obscures the type of function `method`
     def method(self, value: int) -> int: ...
 
 assert_type(f, Any)
@@ -3369,7 +3371,7 @@ assert_type(C().method, Any)
 
 testcase!(
     test_any_function_decorator_stacked_union,
-    TestEnv::new().enable_untyped_function_decorator_error(),
+    TestEnv::new().enable_any_function_decorator_error(),
     r#"
 from typing import Any, assert_type
 
@@ -3383,12 +3385,12 @@ def maybe_erase[T](f: T) -> T | Any:
     return f
 
 @erase
-@maybe_erase
+@maybe_erase  # E: Function decorator with explicit `Any` obscures the type of function `f`
 @typed
 def f() -> int: ...
 
 @typed
-@erase
+@erase  # E: Function decorator with explicit `Any` obscures the type of function `g`
 def g() -> int: ...
 
 assert_type(f, Any)
@@ -3398,7 +3400,7 @@ assert_type(g, Any)
 
 testcase!(
     test_any_function_decorator_preserves_callable,
-    TestEnv::new().enable_untyped_function_decorator_error(),
+    TestEnv::new().enable_any_function_decorator_error(),
     r#"
 from typing import Any, Callable, assert_type
 
@@ -3424,7 +3426,7 @@ def h() -> int: ...
 
 testcase!(
     test_any_function_decorator_stacked_dynamic,
-    TestEnv::new().enable_untyped_function_decorator_error(),
+    TestEnv::new().enable_any_function_decorator_error(),
     r#"
 from typing import Any
 
@@ -3439,20 +3441,20 @@ def untyped(f):
 def maybe_erase[T](f: T) -> T | Any:
     return f
 
-@value  # E: Untyped function decorator obscures the type of function `f`
-@erase
+@value
+@erase  # E: Function decorator with explicit `Any` obscures the type of function `f`
 def f() -> int: ...
 
-@value  # E: Untyped function decorator obscures the type of function `g`
-@untyped  # E: Untyped function decorator obscures the type of function `g`
+@value
+@untyped
 def g() -> int: ...
 
-@untyped  # E: Untyped function decorator obscures the type of function `h`
-@maybe_erase
+@untyped
+@maybe_erase  # E: Function decorator with explicit `Any` obscures the type of function `h`
 def h() -> int: ...
 
-@value  # E: Untyped function decorator obscures the type of function `i`
-@value  # E: Untyped function decorator obscures the type of function `i`
+@value
+@value  # E: Function decorator with explicit `Any` obscures the type of function `i`
 def i() -> int: ...
 "#,
 );
@@ -3471,7 +3473,7 @@ def erase(f: Any) -> Any:
 def untyped(f):
     return f
 
-@value  # E: Untyped function decorator obscures the type of function `f`
+@value
 def f() -> int: ...
 
 @erase
@@ -3484,7 +3486,9 @@ def h() -> int: ...
 
 testcase!(
     test_function_decorator_cross_kind_suppression,
-    TestEnv::new().enable_untyped_function_decorator_error(),
+    TestEnv::new()
+        .enable_untyped_function_decorator_error()
+        .enable_any_function_decorator_error(),
     r#"
 from typing import Any
 
@@ -3496,13 +3500,13 @@ def erase(f: Any) -> Any:
 def untyped(f):
     return f
 
-@value  # E: Untyped function decorator obscures the type of function `f`
+@value  # pyrefly: ignore[untyped-function-decorator]  # E: Function decorator with explicit `Any` obscures the type of function `f`
 def f() -> int: ...
 
-@untyped  # E: Untyped function decorator obscures the type of function `g`
+@untyped  # pyrefly: ignore[any-function-decorator]  # E: Untyped function decorator obscures the type of function `g`
 def g() -> int: ...
 
-@erase  # pyrefly: ignore[untyped-function-decorator]
+@erase  # pyrefly: ignore[untyped-function-decorator]  # E: Function decorator with explicit `Any` obscures the type of function `h`
 def h() -> int: ...
 "#,
 );

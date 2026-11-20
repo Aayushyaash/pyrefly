@@ -288,6 +288,7 @@ pub struct TestEnv {
     invalid_cast_warning: bool,
     untyped_class_decorator_error: bool,
     untyped_function_decorator_error: bool,
+    any_function_decorator_error: bool,
     untyped_namedtuple_error: bool,
     unused_call_result_error: bool,
     implicit_any_empty_container_error: bool,
@@ -378,6 +379,7 @@ impl TestEnv {
             invalid_cast_warning: false,
             untyped_class_decorator_error: false,
             untyped_function_decorator_error: false,
+            any_function_decorator_error: false,
             untyped_namedtuple_error: false,
             unused_call_result_error: false,
             implicit_any_empty_container_error: false,
@@ -664,6 +666,11 @@ impl TestEnv {
 
     pub fn enable_untyped_function_decorator_error(mut self) -> Self {
         self.untyped_function_decorator_error = true;
+        self
+    }
+
+    pub fn enable_any_function_decorator_error(mut self) -> Self {
+        self.any_function_decorator_error = true;
         self
     }
 
@@ -1093,6 +1100,9 @@ impl TestEnv {
         }
         if self.untyped_function_decorator_error {
             errors.set_error_severity(ErrorKind::UntypedFunctionDecorator, Severity::Error);
+        }
+        if self.any_function_decorator_error {
+            errors.set_error_severity(ErrorKind::AnyFunctionDecorator, Severity::Error);
         }
         if self.untyped_namedtuple_error {
             errors.set_error_severity(ErrorKind::UntypedNamedtuple, Severity::Error);

@@ -620,20 +620,6 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                         if is_class_property_decorator_type(self, &decorator.ty) {
                             found_class_property = true;
                         }
-                        if matches!(
-                            &decorator.ty,
-                            Type::Any(AnyStyle::Implicit | AnyStyle::Explicit)
-                        ) {
-                            self.error(
-                                errors,
-                                range,
-                                ErrorKind::UntypedFunctionDecorator,
-                                format!(
-                                    "Untyped function decorator obscures the type of function `{}`",
-                                    def.name
-                                ),
-                            );
-                        }
                         true
                     }
                 };
@@ -1190,21 +1176,39 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 .bindings()
                 .idx_to_key(binding.decorators[*position])
                 .range();
-            // Blame only the decorator that turns a known type into an unknown one. A decorator
-            // whose own type is `Any` is reported where the decorators are collected, and a
-            // decorator applied to an already-unknown type did not cause it.
-            let was_known = !ty.is_any() && !ty.has_top_level_implicit_any();
+            // Blame only the decorator that introduces top-level `Any`. An outer decorator
+            // applied to an already-erased type did not cause the loss.
+            let was_known = !ty.as_unions().iter().any(Type::is_any);
             ty = self.apply_function_decorator(decorator.clone(), ty, &def.metadata, range, errors);
-            if was_known && !decorator.is_any() && ty.has_top_level_implicit_any() {
-                self.error(
-                    errors,
-                    range,
-                    ErrorKind::UntypedFunctionDecorator,
-                    format!(
-                        "Untyped function decorator obscures the type of function `{}`",
-                        stmt.name
-                    ),
-                );
+            if was_known {
+                let diagnostic = if ty.has_top_level_implicit_any() {
+                    Some((
+                        ErrorKind::UntypedFunctionDecorator,
+                        "Untyped function decorator",
+                    ))
+                } else if ty
+                    .as_unions()
+                    .iter()
+                    .any(|member| matches!(member, Type::Any(AnyStyle::Explicit)))
+                {
+                    Some((
+                        ErrorKind::AnyFunctionDecorator,
+                        "Function decorator with explicit `Any`",
+                    ))
+                } else {
+                    None
+                };
+                if let Some((kind, description)) = diagnostic {
+                    self.error(
+                        errors,
+                        range,
+                        kind,
+                        format!(
+                            "{description} obscures the type of function `{}`",
+                            stmt.name
+                        ),
+                    );
+                }
             }
         }
         if def.metadata.flags.is_cached_property && def.metadata.flags.is_return_inferred {
