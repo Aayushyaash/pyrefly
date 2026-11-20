@@ -553,3 +553,82 @@ class Child(Base):
     assert!(item.text_edit.is_none());
     assert!(item.additional_text_edits.is_none());
 }
+
+// BUG: A newline in a preserved default splits the signature into the decorator edit.
+#[test]
+fn multiline_numeric_default() {
+    let code = r#"class Base:
+    def method(self, value: int = -(
+        1
+    )) -> int:
+        return value
+class Child(Base):
+    def met
+"#;
+    let (item, result) = complete(code, &[]);
+    assert!(item.text_edit.is_some());
+    let (_, errors, _) = Ast::parse(&result, PySourceType::Python);
+    assert!(!errors.is_empty(), "{result}");
+}
+
+// BUG: Stub-only annotation dependencies are imported at runtime.
+#[test]
+fn stub_only_annotation_dependency() {
+    let deps = [(
+        "base",
+        r#"from _typeshed import SupportsWrite
+class Base:
+    def method(self, file: SupportsWrite[str] | None = None) -> None:
+        pass
+"#,
+    )];
+    let code = r#"from base import Base
+class Child(Base):
+    def met
+"#;
+    let (item, result) = complete(code, &deps);
+    assert!(item.text_edit.is_some());
+    assert!(
+        result.contains("from _typeshed import SupportsWrite\n"),
+        "{result}"
+    );
+    check_result(&result, &deps);
+}
+
+// BUG: Later typing imports either supply an unbound decorator or receive its import edit.
+#[test]
+fn decorator_import_after_class() {
+    for import in [
+        "from typing import override",
+        "from typing import override as overrides",
+        "import typing",
+        "import typing as t",
+        "from typing import Any",
+        "from typing_extensions import override",
+    ] {
+        let code = format!(
+            "class Base:\n    def method(self) -> None: pass\nclass Child(Base):\n    def met\n{import}\n"
+        );
+        let (item, result) = complete(&code, &[]);
+        assert!(item.text_edit.is_some(), "{result}");
+        assert!(result.contains("@"), "{result}");
+    }
+}
+
+// BUG: A private keyword-only parameter cannot be forwarded under its source name.
+#[test]
+fn private_keyword_only_parameter() {
+    let code = r#"class Base:
+    def method(self, *, __value: int = 1) -> int:
+        return __value
+class Child(Base):
+    def met
+"#;
+    let (item, result) = complete(code, &[]);
+    assert!(item.text_edit.is_some());
+    assert!(
+        result.contains("super().method(__value=__value)"),
+        "{result}"
+    );
+    check_result(&result, &[]);
+}
