@@ -82,7 +82,9 @@ use crate::error::context::ErrorContext;
 use crate::error::context::TypeCheckContext;
 use crate::error::context::TypeCheckKind;
 use crate::error::signature_diff::DisplayedSignature;
+use crate::error::signature_diff::SignatureFailure;
 use crate::error::signature_diff::render_signature_diff;
+use crate::solver::solver::CallableSubsetError;
 use crate::solver::solver::SubsetError;
 use crate::types::annotation::Annotation;
 use crate::types::annotation::Qualifier;
@@ -5021,7 +5023,20 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                                 want_is_property: false,
                                 subset_error: SubsetError::Callable(failure),
                                 ..
-                            } => Some(&**failure),
+                            } => Some(match &**failure {
+                                // The solver stops at the first failing part, so check the
+                                // return types here as well. Return types that mention type
+                                // parameters are skipped: checking them on their own would
+                                // ignore how the parameters solve those type parameters.
+                                CallableSubsetError::Params(params) => SignatureFailure::Params {
+                                    params,
+                                    return_type: !got_callable.ret.contains_type_variable()
+                                        && !want_callable.ret.contains_type_variable()
+                                        && !self
+                                            .is_subset_eq(&got_callable.ret, &want_callable.ret),
+                                },
+                                CallableSubsetError::Return(_) => SignatureFailure::Return,
+                            }),
                             _ => None,
                         };
                         if let Some(lines) = render_signature_diff(
@@ -5033,7 +5048,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                                 text: &got_sig,
                                 params: &got_params,
                             },
-                            failure,
+                            failure.as_ref(),
                         ) {
                             diff_lines = lines;
                         }
