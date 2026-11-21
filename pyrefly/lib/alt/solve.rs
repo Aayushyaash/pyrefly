@@ -1968,8 +1968,18 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         ty: &mut Type,
         visiting: &mut SmallSet<(ModuleName, TypeAliasIndex)>,
         recursive_refs: &mut SmallSet<Name>,
-    ) {
+    ) -> Option<Box<[Type]>> {
         match ty {
+            Type::Annotated(inner, metadata) => {
+                if let Some(inner_metadata) =
+                    self.expand_type_alias_refs_inner(inner, visiting, recursive_refs)
+                {
+                    let mut merged = inner_metadata.into_vec();
+                    merged.extend(std::mem::take(metadata).into_vec());
+                    *metadata = merged.into_boxed_slice();
+                }
+                None
+            }
             Type::UntypedAlias(f)
                 if let TypeAliasData::Ref(r) = &**f
                     && r.module_name == self.module().name() =>
@@ -1981,42 +1991,44 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     // self-reference even when the cycle does not include the
                     // alias currently being resolved.
                     recursive_refs.insert(r.name.clone());
-                    return;
+                    return None;
                 }
                 let key_type_alias = KeyTypeAlias(r.index);
                 let idx = self
                     .bindings()
                     .key_to_idx_hashed_opt(Hashed::new(&key_type_alias))
                     .expect("same-module TypeAliasRef must have a corresponding KeyTypeAlias");
-                let ta = self.get_idx(idx);
-                // The body stored in KeyTypeAlias has already been through
-                // untype_opt during wrap_type_alias, so we just strip the
-                // Type::Type wrapper rather than re-running untype.
-                // Note: TypeAlias::error() and TypeAlias::unknown() store raw
-                // types (not wrapped in Type::Type), so we leave the Ref in
-                // place for those — the error is already reported elsewhere.
-                let mut body = match ta.as_type() {
-                    Type::Type(inner) => *inner,
-                    // If the body was an Annotated type, return it without the wrapper
-                    Type::Annotated(inner, _) => *inner,
-                    _ => return,
-                };
-                // Recursively expand any Refs in the inlined body, so that all nested
-                // alias bodies are inlined before we apply the outer substitution.
+                let mut aliased = self.get_idx(idx).as_type();
+                // Keep the wrapper during expansion so nested Annotated metadata can be
+                // collected without resolving aliases earlier than the cycle check.
+                if !matches!(aliased, Type::Type(_) | Type::Annotated(..)) {
+                    return None;
+                }
                 visiting.insert(key);
-                self.expand_type_alias_refs_inner(&mut body, visiting, recursive_refs);
+                self.expand_type_alias_refs_inner(&mut aliased, visiting, recursive_refs);
                 visiting.shift_remove(&key);
                 // Apply type arguments if the reference was parameterized.
-                // For generic aliases used without explicit args, promote_forall
-                // in untype_opt will have already injected implicit Any args.
                 if let Some(args) = &r.args {
-                    args.substitute_into_mut(&mut body);
+                    args.substitute_into_mut(&mut aliased);
                 }
-                *ty = body;
+                match aliased {
+                    Type::Type(inner) => {
+                        *ty = *inner;
+                        None
+                    }
+                    Type::Annotated(inner, metadata) => {
+                        *ty = *inner;
+                        Some(metadata)
+                    }
+                    _ => unreachable!("validated alias body must have a type wrapper"),
+                }
             }
-            _ => ty.recurse_mut(&mut |child: &mut Type| {
-                self.expand_type_alias_refs_inner(child, visiting, recursive_refs);
-            }),
+            _ => {
+                ty.recurse_mut(&mut |child: &mut Type| {
+                    self.expand_type_alias_refs_inner(child, visiting, recursive_refs);
+                });
+                None
+            }
         }
     }
 
@@ -8039,10 +8051,21 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
 
     pub(crate) fn untype_opt_with_context(
         &self,
+        ty: Type,
+        range: TextRange,
+        errors: &ErrorCollector,
+        context: UntypeContext,
+    ) -> Option<Type> {
+        self.untype_opt_impl(ty, range, errors, context, None)
+    }
+
+    fn untype_opt_impl(
+        &self,
         mut ty: Type,
         range: TextRange,
         errors: &ErrorCollector,
         context: UntypeContext,
+        annotated_metadata: Option<&mut Vec<Type>>,
     ) -> Option<Type> {
         if let Type::Forall(forall) = ty {
             ty = self.promote_forall(*forall, range, errors);
@@ -8056,11 +8079,12 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 }
                 Some(self.unions(ts))
             }
-            Type::Var(v) if let Some(_guard) = self.recurse(v) => self.untype_opt_with_context(
+            Type::Var(v) if let Some(_guard) = self.recurse(v) => self.untype_opt_impl(
                 self.solver().force_var(v, self),
                 range,
                 errors,
                 context,
+                annotated_metadata,
             ),
             // These are all legal type forms, so we accept them (return `Some`).
             // Only the quantified kinds get a kind check from the validator;
@@ -8111,7 +8135,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     unreachable!("guarded by matches! above")
                 };
                 let mut aliased_type =
-                    self.untype_opt_with_context(ta.as_type(), range, errors, context)?;
+                    self.untype_opt_impl(ta.as_type(), range, errors, context, annotated_metadata)?;
                 if let Type::Union(f) = &mut aliased_type {
                     f.display_name =
                         IdentityIgnored(Some((self.module().name(), (*ta.name).clone())));
@@ -8164,8 +8188,11 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     self.canonicalize_all_class_types(Type::ClassDef(cls), range, errors);
                 self.untype_opt_with_context(canonicalized, range, errors, context)
             }
-            // Annotated[T, meta] in annotation/type-alias context unwraps to T
-            Type::Annotated(t, _) => {
+            // Annotated[T, meta] in annotation/type-alias context unwraps to T.
+            Type::Annotated(t, metadata) => {
+                if let Some(out) = annotated_metadata {
+                    out.extend(metadata.into_vec());
+                }
                 Some(self.validate_untyped_type_var_context(*t, range, errors, context))
             }
             _ => None,
@@ -8550,7 +8577,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         let inferred = self
             .expr_infer_without_shape_comment(x, None, errors, Some(context))
             .into_ty();
-        let ty = self.untype_runtime_type(inferred, x.range(), context, errors);
+        let ty = self.untype_runtime_type(inferred, x.range(), context, errors, None);
         self.validate_type_form(ty, x.range(), context, errors)
     }
 
@@ -8559,6 +8586,28 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         x: &Expr,
         type_form_context: TypeFormContext<'_>,
         errors: &ErrorCollector,
+    ) -> Type {
+        self.expr_untype_impl(x, type_form_context, errors, None)
+    }
+
+    /// Untype the first argument to `Annotated`, retaining metadata from its outer wrapper.
+    pub(crate) fn expr_untype_annotated_arg(
+        &self,
+        x: &Expr,
+        context: TypeFormContext<'_>,
+        errors: &ErrorCollector,
+    ) -> (Type, Vec<Type>) {
+        let mut metadata = Vec::new();
+        let ty = self.expr_untype_impl(x, context, errors, Some(&mut metadata));
+        (ty, metadata)
+    }
+
+    fn expr_untype_impl(
+        &self,
+        x: &Expr,
+        type_form_context: TypeFormContext<'_>,
+        errors: &ErrorCollector,
+        annotated_metadata: Option<&mut Vec<Type>>,
     ) -> Type {
         let result = match x {
             // An `IntVar` default is a signed integer expression, not an ordinary type.
@@ -8590,7 +8639,13 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 let inferred_ty = self
                     .expr_infer_impl(x, None, errors, Some(type_form_context))
                     .into_ty();
-                self.untype_runtime_type(inferred_ty, x.range(), type_form_context, errors)
+                self.untype_runtime_type(
+                    inferred_ty,
+                    x.range(),
+                    type_form_context,
+                    errors,
+                    annotated_metadata,
+                )
             }
         };
         let result = self.validate_type_form(result, x.range(), type_form_context, errors);
@@ -8604,6 +8659,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         range: TextRange,
         type_form_context: TypeFormContext<'_>,
         errors: &ErrorCollector,
+        annotated_metadata: Option<&mut Vec<Type>>,
     ) -> Type {
         if self.should_preserve_unpacked_map_int_tuples_call(&inferred_ty, type_form_context) {
             return inferred_ty;
@@ -8628,11 +8684,12 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 ),
             );
         }
-        self.untype_opt_with_context(
+        self.untype_opt_impl(
             inferred_ty.clone(),
             range,
             errors,
             type_form_context.untype_context(),
+            annotated_metadata,
         )
         .unwrap_or_else(|| {
             self.error(
