@@ -1575,6 +1575,26 @@ class D:
 );
 
 testcase!(
+    test_chained_annotated_alias_as_value,
+    r#"
+from typing import Annotated, assert_type
+
+def takes_class(cls: type[int]) -> None: ...
+
+Direct = Annotated[int, "metadata"]
+Chained = Direct
+
+Direct()  # E: Expected a callable, got `Annotated[int]`
+Chained()  # E: Expected a callable, got `Annotated[int]`
+takes_class(Direct)  # E: not assignable to parameter `cls`
+takes_class(Chained)  # E: not assignable to parameter `cls`
+
+def check_annotation(value: Chained) -> None:
+    assert_type(value, int)
+    "#,
+);
+
+testcase!(
     test_chained_type_alias_substitution,
     r#"
 from typing import TypeVar, TypeAlias, assert_type

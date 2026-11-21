@@ -1660,6 +1660,38 @@ model.imported = [6]  # E: `list[int]` is not assignable to attribute `imported`
 );
 
 pydantic_testcase!(
+    bug = "Validator metadata is lost when an alias wraps another Annotated alias",
+    test_validator_alias_wrapped_in_annotated_alias,
+    r#"
+from typing import Annotated, assert_type
+from pydantic import BaseModel, BeforeValidator, Field
+
+def stringify(value: object) -> str:
+    return str(value)
+
+Text = Annotated[str, BeforeValidator(stringify)]
+Legacy = Annotated[Text, Field(description="Display text")]
+type Scoped = Annotated[Text, Field(description="Display text")]
+type Generic[T] = Annotated[T, BeforeValidator(stringify)]
+GenericText = Annotated[Generic[str], Field(description="Display text")]
+
+class Model(BaseModel, strict=True):
+    legacy: Legacy
+    scoped: Scoped
+    generic: GenericText
+
+Model(legacy=1, scoped="text", generic="text")  # E: not assignable to parameter `legacy`
+Model(legacy="text", scoped=1, generic="text")  # E: not assignable to parameter `scoped`
+Model(legacy="text", scoped="text", generic=1)  # E: not assignable to parameter `generic`
+model = Model(legacy="text", scoped="text", generic="text")
+assert_type(model.legacy, str)
+assert_type(model.scoped, str)
+assert_type(model.generic, str)
+model.legacy = 1  # E: not assignable to attribute `legacy`
+"#,
+);
+
+pydantic_testcase!(
     test_annotated_validator_name_is_not_special,
     r#"
 from typing import Annotated, Callable, assert_type
