@@ -622,6 +622,53 @@ class B(A):
         assert_eq!(messages[0], expected);
     }
 
+    /// Bug: the return types are also incompatible, but only the parameter is annotated.
+    #[test]
+    fn test_signature_diff_param_and_return() {
+        let messages = error_messages(
+            r#"
+class A:
+    def foo(self, x: int) -> int: ...
+
+class B(A):
+    def foo(self, x: str) -> str: ...
+"#,
+        );
+        assert_eq!(messages.len(), 1, "Expected one error, got {messages:?}");
+        let expected = r#"Class member `B.foo` overrides parent class `A` in an inconsistent manner
+  `B.foo` has type `(x: str) -> str`, which is not assignable to `(x: int) -> int`, the type of `A.foo`
+  Signature mismatch:
+  expected: def foo(self: B, x: int) -> int: ...
+                                ^^^ parameter
+  found:    def foo(self: B, x: str) -> str: ...
+                                ^^^ parameter"#;
+        assert_eq!(messages[0], expected);
+    }
+
+    /// Both a parameter and the return type are incompatible, and the return types mention a
+    /// type parameter.
+    #[test]
+    fn test_signature_diff_generic_return() {
+        let messages = error_messages(
+            r#"
+class A:
+    def foo[T](self, x: int, y: T) -> T: ...
+
+class B(A):
+    def foo[T](self, x: str, y: T) -> list[T]: ...
+"#,
+        );
+        assert_eq!(messages.len(), 1, "Expected one error, got {messages:?}");
+        let expected = r#"Class member `B.foo` overrides parent class `A` in an inconsistent manner
+  `B.foo` has type `[T](x: str, y: T) -> list[T]`, which is not assignable to `[T](x: int, y: T) -> T`, the type of `A.foo`
+  Signature mismatch:
+  expected: def foo(self: B, x: int, y: T) -> T: ...
+                                ^^^ parameter
+  found:    def foo(self: B, x: str, y: T) -> list[T]: ...
+                                ^^^ parameter"#;
+        assert_eq!(messages[0], expected);
+    }
+
     /// Inferred (unannotated) return types: verifies signature diff works
     /// when return types have no explicit annotation.
     #[test]
