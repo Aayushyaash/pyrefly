@@ -3237,6 +3237,171 @@ class ConcreteChild(Base):
     "#,
 );
 
+// Regression coverage for https://github.com/pyrefly-org/pyrefly/issues/5299.
+testcase!(
+    bug = "Descriptor overrides do not check class access",
+    test_override_descriptor_class_access,
+    r#"
+from typing import Callable, Concatenate, assert_type, overload, override
+
+class Descriptor[T, **P, R]:
+    def __init__(self, fn: Callable[Concatenate[T, P], R]) -> None:
+        self.fn = fn
+
+    @overload
+    def __get__(self, instance: T, owner: type[T]) -> Callable[P, R]: ...
+    @overload
+    def __get__(self, instance: None, owner: type[T]) -> str: ...
+    def __get__(self, instance: T | None, owner: type[T]) -> Callable[P, R] | str:
+        if instance is None:
+            return "descriptor"
+        def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
+            return self.fn(instance, *args, **kwargs)
+        return wrapped
+
+class Base:
+    @Descriptor
+    def method(self) -> int:
+        return 0
+
+class Child(Base):
+    @override
+    def method(self) -> int:
+        return 1
+
+assert_type(Base.method, str)
+assert_type(Child().method(), int)
+
+def accepts_base(cls: type[Base]) -> str:
+    return cls.method.capitalize()
+
+accepts_base(Child)
+
+class ChildIgnored(Base):
+    @override
+    def method(self) -> int:  # pyrefly: ignore[bad-override]
+        return 1
+"#,
+);
+
+testcase!(
+    test_override_descriptor_class_access_compatible,
+    r#"
+from typing import Callable, Concatenate, assert_type, overload, override
+
+class Descriptor[T, **P, R]:
+    def __init__(self, fn: Callable[Concatenate[T, P], R]) -> None:
+        self.fn = fn
+
+    @overload
+    def __get__(self, instance: None, owner: type[T]) -> Callable[Concatenate[T, P], R]: ...
+    @overload
+    def __get__(self, instance: T, owner: type[T]) -> Callable[P, R]: ...
+    def __get__(self, instance: T | None, owner: type[T]):
+        if instance is None:
+            return self.fn
+        def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
+            return self.fn(instance, *args, **kwargs)
+        return wrapped
+
+class Base:
+    def method(self, /, x: int) -> int:
+        return x
+
+class Child(Base):
+    @override
+    @Descriptor
+    def method(self, /, x: int) -> int:
+        return x
+
+class Grandchild(Child):
+    @override
+    def method(self, /, x: int) -> int:
+        return x
+
+assert_type(Child().method(1), int)
+assert_type(Child.method(Child(), 1), int)
+assert_type(Grandchild.method(Grandchild(), 1), int)
+
+class KeywordBase:
+    def method(self, x: int) -> int:
+        return x
+
+class KeywordChild(KeywordBase):
+    @override
+    @Descriptor
+    def method(self, x: int) -> int:
+        return x
+
+class PlaceholderBase:
+    def method(self, /, x: int):
+        raise NotImplementedError
+
+class PlaceholderChild(PlaceholderBase):
+    @override
+    @Descriptor
+    def method(self, /, x: int) -> int:
+        return x
+"#,
+);
+
+testcase!(
+    bug = "Descriptor overrides do not check class access",
+    test_override_descriptor_class_access_between_descriptors,
+    r#"
+from typing import overload
+
+class Descriptor:
+    @overload
+    def __get__(self, instance: None, owner: type) -> str: ...
+    @overload
+    def __get__(self, instance: object, owner: type) -> int: ...
+    def __get__(self, instance: object | None, owner: type) -> str | int: ...
+
+class OtherDescriptor:
+    @overload
+    def __get__(self, instance: None, owner: type) -> bytes: ...
+    @overload
+    def __get__(self, instance: object, owner: type) -> int: ...
+    def __get__(self, instance: object | None, owner: type) -> bytes | int: ...
+
+class Base:
+    value = Descriptor()
+
+class Child(Base):
+    value = OtherDescriptor()
+"#,
+);
+
+testcase!(
+    test_override_descriptor_class_access_generic_parent,
+    r#"
+from typing import assert_type, overload
+
+class Descriptor[T]:
+    @overload
+    def __get__(self, instance: None, owner: type) -> T: ...
+    @overload
+    def __get__(self, instance: object, owner: type) -> int: ...
+    def __get__(self, instance: object | None, owner: type) -> T | int: ...
+
+class Base[T]:
+    value: Descriptor[T] = Descriptor()
+
+class Child(Base[str]):
+    value = Descriptor[str]()
+
+class Grandchild(Child):
+    value = Descriptor[str]()
+
+class IncompatibleChild(Base[str]):
+    value = Descriptor[bytes]()
+
+assert_type(Child.value, str)
+assert_type(Grandchild.value, str)
+"#,
+);
+
 testcase!(
     test_override_descriptor_method,
     r#"
