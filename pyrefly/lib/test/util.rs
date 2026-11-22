@@ -280,6 +280,7 @@ pub struct TestEnv {
     missing_super_call_error: bool,
     missing_source_error: bool,
     unsafe_multiple_inheritance_error: bool,
+    import_cycle_error: bool,
     unused_ignore_errors: bool,
     pyre_ignores: bool,
     not_required_key_access_error: bool,
@@ -371,6 +372,7 @@ impl TestEnv {
             missing_super_call_error: false,
             missing_source_error: false,
             unsafe_multiple_inheritance_error: false,
+            import_cycle_error: false,
             unused_ignore_errors: false,
             pyre_ignores: false,
             not_required_key_access_error: false,
@@ -626,6 +628,11 @@ impl TestEnv {
 
     pub fn enable_unsafe_multiple_inheritance_error(mut self) -> Self {
         self.unsafe_multiple_inheritance_error = true;
+        self
+    }
+
+    pub fn enable_import_cycle_error(mut self) -> Self {
+        self.import_cycle_error = true;
         self
     }
 
@@ -1060,6 +1067,9 @@ impl TestEnv {
         }
         if self.unsafe_multiple_inheritance_error {
             errors.set_error_severity(ErrorKind::UnsafeMultipleInheritance, Severity::Error);
+        }
+        if self.import_cycle_error {
+            errors.set_error_severity(ErrorKind::ImportCycle, Severity::Error);
         }
         if self.unused_ignore_errors {
             errors.set_error_severity(ErrorKind::UnusedIgnore, Severity::Error);

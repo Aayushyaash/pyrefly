@@ -44,6 +44,7 @@ mod generic_legacy;
 mod generic_restrictions;
 mod generic_sub;
 mod higher_order;
+mod import_cycles;
 mod imports;
 mod incremental;
 mod index_shape;

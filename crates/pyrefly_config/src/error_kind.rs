@@ -259,6 +259,8 @@ pub enum ErrorKind {
     /// do not recognize as always executing (we recognize constructors and some test setup
     /// methods).
     ImplicitlyDefinedAttribute,
+    /// A module imports itself through a chain of other first-party modules.
+    ImportCycle,
     /// A block of code that is unreachable in the current type-checking configuration - for
     /// example, the `else` block following an `if TYPE_CHECKING: ...` block.
     InactiveCode,
@@ -702,6 +704,7 @@ impl ErrorKind {
             ErrorKind::ImplicitImport => Severity::Warn,
             ErrorKind::ImplicitReexport => Severity::Ignore,
             ErrorKind::ImplicitlyDefinedAttribute => Severity::Ignore,
+            ErrorKind::ImportCycle => Severity::Ignore,
             ErrorKind::InactiveCode => Severity::Hint,
             ErrorKind::IncompatibleComparison => Severity::Ignore,
             ErrorKind::IneffectiveFinal => Severity::Warn,
