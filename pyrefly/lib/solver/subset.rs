@@ -73,6 +73,7 @@ use crate::types::callable::PrefixParam;
 use crate::types::callable::Required;
 use crate::types::callable::params_are_gradual_variadic;
 use crate::types::class::ClassType;
+use crate::types::function::PropertyRole;
 use crate::types::quantified::QuantifiedKind;
 use crate::types::tuple::Tuple;
 use crate::types::type_alias::TypeAliasData;
@@ -2383,6 +2384,15 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
             ),
             (Type::Module(_), Type::ClassType(cls)) if cls.is(KnownClass::TypesModuleType) => {
                 Ok(())
+            }
+            // Property accessors retain function signatures internally, but class-side values
+            // are instances of the nominal descriptor class.
+            (_, Type::ClassType(_))
+                if let Some(metadata) = got.property_metadata()
+                    && matches!(metadata.role, PropertyRole::Getter | PropertyRole::Setter)
+                    && let Some(cls) = metadata.descriptor_class.as_deref() =>
+            {
+                self.is_subset_eq(&Type::ClassType(cls.clone()), want)
             }
             (_, Type::ClassType(cls))
                 if cls.is(KnownClass::TypesFunctionType)

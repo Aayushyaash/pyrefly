@@ -1257,7 +1257,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         for idx in &func.decorators {
             match self.get_special_decorator(self.get_idx(*idx)) {
                 Some(SpecialDecorator::StaticMethod(_)) => child_has_receiver = false,
-                Some(SpecialDecorator::Property(_) | SpecialDecorator::CachedProperty(_)) => {
+                Some(SpecialDecorator::Property(..) | SpecialDecorator::CachedProperty(_)) => {
                     accessor = Some(PropertyRole::Getter);
                 }
                 Some(SpecialDecorator::PropertySetter(_)) => accessor = Some(PropertyRole::Setter),
@@ -1357,7 +1357,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 Some(SpecialDecorator::ClassMethod(name))
             }
             Some(CalleeKind::Class(ClassKind::Property(name))) => {
-                Some(SpecialDecorator::Property(name))
+                Some(SpecialDecorator::Property(name, None))
             }
             Some(CalleeKind::Class(ClassKind::CachedProperty(name))) => {
                 Some(SpecialDecorator::CachedProperty(name))
@@ -1418,13 +1418,13 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 flags.is_classmethod = true;
                 true
             }
-            SpecialDecorator::Property(_) => {
+            SpecialDecorator::Property(_, descriptor_class) => {
                 flags.property_metadata = Some(PropertyMetadata {
                     role: PropertyRole::Getter,
                     getter: self.heap.mk_any_error(),
                     setter: None,
                     has_deleter: false,
-                    descriptor_class: None,
+                    descriptor_class: descriptor_class.clone().map(Box::new),
                 });
                 true
             }
@@ -1924,7 +1924,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         let name = match decorator {
             SpecialDecorator::StaticMethod(name) => name.as_str(),
             SpecialDecorator::ClassMethod(name) => name.as_str(),
-            SpecialDecorator::Property(name) => name.as_str(),
+            SpecialDecorator::Property(name, _) => name.as_str(),
             SpecialDecorator::CachedProperty(name) => name.as_str(),
             SpecialDecorator::EnumMember => "member",
             SpecialDecorator::Override => "override",
