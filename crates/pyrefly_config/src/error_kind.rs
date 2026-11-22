@@ -496,6 +496,8 @@ pub enum ErrorKind {
     UnexpectedNever,
     /// An error caused by passing a positional argument for a keyword-only parameter.
     UnexpectedPositionalArgument,
+    /// A set element or dict key whose type is not hashable, which raises `TypeError` at runtime.
+    Unhashable,
     /// Attempting to use a type checker directive without importing it from `typing`.
     UnimportedDirective,
     /// An instance attribute is declared with a type annotation in the class body but is
@@ -749,6 +751,7 @@ impl ErrorKind {
             ErrorKind::UnannotatedPublicReturn => Severity::Ignore,
             ErrorKind::UnannotatedReturn => Severity::Ignore,
             ErrorKind::UnexpectedNever => Severity::Warn,
+            ErrorKind::Unhashable => Severity::Warn,
             ErrorKind::UninitializedInstanceVariable => Severity::Ignore,
             ErrorKind::UnknownArgumentType => Severity::Ignore,
             ErrorKind::ImplicitAnyLambda => Severity::Ignore,

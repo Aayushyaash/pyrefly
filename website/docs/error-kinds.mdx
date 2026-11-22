@@ -2341,6 +2341,18 @@ def takes_kwonly(*, x: int) -> int:
 takes_kwonly(1)  # should be `takes_kwonly(x=1)`!
 ```
 
+## unhashable
+
+Default severity: `warn`
+
+A set element or dictionary key has a type that is not hashable, so building the
+set or dictionary raises `TypeError` at runtime.
+
+```python
+{[1, 2]}  # unhashable
+{[1, 2]: "a"}  # unhashable
+```
+
 ## unimported-directive
 
 Using a [type checker directive](https://typing.python.org/en/latest/spec/directives.html#type-checker-directives) without importing it from `typing` first will result in a runtime error.
