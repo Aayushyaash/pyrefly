@@ -1054,6 +1054,7 @@ mod tests {
 
     use dupe::Dupe;
     use pyrefly_build::handle::Handle;
+    use pyrefly_config::base::Preset;
     use pyrefly_config::error_kind::ErrorKind;
     use pyrefly_config::error_kind::Severity;
     use pyrefly_python::ast::Ast;
@@ -1178,6 +1179,120 @@ def f() -> int:
         let unused = errors.collect_unused_ignore_errors(&collected);
         assert_eq!(unused.len(), 1);
         assert!(unused[0].msg().contains("Unused"));
+    }
+
+    // https://github.com/pyrefly-org/pyrefly/issues/5717
+    // BUG: A disabled diagnostic still makes its suppression count as used.
+    #[test]
+    fn test_unused_ignore_for_disabled_error() {
+        let expected_unused = 0;
+        for (preset, severity) in [(Preset::All, Some(Severity::Ignore)), (Preset::Basic, None)] {
+            for comment in [
+                "# pyrefly: ignore[bad-assignment]",
+                "# pyrefly: ignore",
+                "# type: ignore",
+            ] {
+                let contents = format!("x: int = \"\"  {comment}\n");
+                let (errors, tdir) = get_errors_with_config(&contents, |config| {
+                    config.root.preset = Some(preset);
+                    let levels = config.root.errors.get_or_insert_with(Default::default);
+                    if let Some(severity) = severity {
+                        levels.set_error_severity(ErrorKind::BadAssignment, severity);
+                    }
+                    levels.set_error_severity(ErrorKind::UnusedIgnore, Severity::Error);
+                    levels.set_error_severity(ErrorKind::UnusedTypeIgnore, Severity::Error);
+                });
+                let collected = errors.collect_errors();
+                assert!(collected.ordinary.is_empty());
+                assert_eq!(collected.suppressed.len(), 1 - expected_unused);
+                assert_eq!(collected.disabled.len(), expected_unused);
+                let unused = errors.collect_unused_ignore_errors(&collected);
+                assert_eq!(unused.len(), expected_unused, "{preset:?}: {comment}");
+                let (_, borrowed_unused) = errors.collect_error_refs_with_unused_ignores();
+                assert_eq!(borrowed_unused.len(), expected_unused);
+                assert_eq!(
+                    errors
+                        .collect_unused_ignore_errors_for_display(&collected)
+                        .ordinary
+                        .len(),
+                    expected_unused,
+                );
+                let serialized = unused
+                    .iter()
+                    .filter_map(SerializedError::from_error)
+                    .collect();
+                assert_eq!(
+                    remove_unused_ignores_from_serialized(serialized, UnusedIgnoreKind::All)
+                        .unwrap(),
+                    expected_unused,
+                );
+                assert_eq!(
+                    fs_anyhow::read_to_string(&get_path(&tdir)).unwrap(),
+                    contents
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_used_ignore_for_enabled_error_severities() {
+        for severity in [
+            Severity::Error,
+            Severity::Warn,
+            Severity::Info,
+            Severity::Hint,
+        ] {
+            let contents = "x: int = \"\"  # pyrefly: ignore[bad-assignment]\n";
+            let (errors, _tdir) = get_errors_with_config(contents, |config| {
+                config
+                    .root
+                    .errors
+                    .get_or_insert_with(Default::default)
+                    .set_error_severity(ErrorKind::BadAssignment, severity);
+            });
+            let collected = errors.collect_errors();
+            assert_eq!(collected.suppressed.len(), 1);
+            assert_eq!(collected.suppressed[0].severity(), severity);
+            assert!(collected.disabled.is_empty());
+            assert!(errors.collect_unused_ignore_errors(&collected).is_empty());
+            let (_, borrowed_unused) = errors.collect_error_refs_with_unused_ignores();
+            assert!(borrowed_unused.is_empty());
+        }
+    }
+
+    // BUG: Cleanup keeps a disabled code alongside an enabled, used code.
+    #[test]
+    fn test_partially_used_ignore_for_disabled_error() {
+        let expected_unused = 0;
+        let contents = "\
+def f(x: str) -> str:
+    return x
+value: int = f(0)  # pyrefly: ignore[bad-assignment, bad-argument-type]
+";
+        let (errors, tdir) = get_errors_with_config(contents, |config| {
+            config
+                .root
+                .errors
+                .get_or_insert_with(Default::default)
+                .set_error_severity(ErrorKind::BadAssignment, Severity::Ignore);
+        });
+        let collected = errors.collect_errors();
+        let unused = errors.collect_unused_ignore_errors(&collected);
+        assert_eq!(unused.len(), expected_unused);
+        let (_, borrowed_unused) = errors.collect_error_refs_with_unused_ignores();
+        assert_eq!(borrowed_unused.len(), expected_unused);
+        let serialized = unused
+            .iter()
+            .filter_map(SerializedError::from_error)
+            .collect();
+        assert_eq!(
+            remove_unused_ignores_from_serialized(serialized, UnusedIgnoreKind::Pyrefly).unwrap(),
+            expected_unused,
+        );
+        assert_eq!(
+            fs_anyhow::read_to_string(&get_path(&tdir)).unwrap(),
+            contents
+        );
     }
 
     #[test]
