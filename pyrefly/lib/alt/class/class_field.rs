@@ -4846,22 +4846,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 && want_class_field.is_class_var()
                 && (matches!(&class_field.0, ClassFieldInner::Method { .. })
                     || matches!(&want_class_field.0, ClassFieldInner::Method { .. }));
-            let want_attribute = {
-                // Substitute `Self` with the derived class to support contravariant occurrences.
-                let parent_instance = Instance::of_protocol(parent, self.instantiate(cls));
-                let mut attr = if should_compare_as_class_attributes {
-                    self.as_class_attribute(
-                        field_name,
-                        want_class_field.as_ref(),
-                        &parent_instance.to_class_base(),
-                    )
-                } else {
-                    self.as_instance_attribute(
-                        field_name,
-                        want_class_field.as_ref(),
-                        &parent_instance,
-                    )
-                };
+            let relax_parent_attribute = |mut attr: ClassAttribute| {
                 // Relax the parent return type for the override-consistency check when the parent
                 // function's body is a `raise NotImplementedError(...)` placeholder *and* the
                 // parent's return type was inferred (not user-annotated). In that case the
@@ -4921,6 +4906,24 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     _ => {}
                 }
                 attr
+            };
+            let want_attribute = {
+                // Substitute `Self` with the derived class to support contravariant occurrences.
+                let parent_instance = Instance::of_protocol(parent, self.instantiate(cls));
+                let attr = if should_compare_as_class_attributes {
+                    self.as_class_attribute(
+                        field_name,
+                        want_class_field.as_ref(),
+                        &parent_instance.to_class_base(),
+                    )
+                } else {
+                    self.as_instance_attribute(
+                        field_name,
+                        want_class_field.as_ref(),
+                        &parent_instance,
+                    )
+                };
+                relax_parent_attribute(attr)
             };
             let Some(want_attribute) = self.filter_overloads_for_override(want_attribute) else {
                 // All parent overloads have a `self` type incompatible with the child class;
