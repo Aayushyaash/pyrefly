@@ -224,6 +224,7 @@ impl Preset {
             Preset::Default => ConfigBase::default(),
             Preset::Strict => {
                 let errors = HashMap::from([
+                    (ErrorKind::BadOverrideDescriptor, Severity::Error),
                     (ErrorKind::DirectAbstractBaseInstantiation, Severity::Error),
                     (ErrorKind::ImplicitAny, Severity::Error),
                     (ErrorKind::InstanceVarAssign, Severity::Error),

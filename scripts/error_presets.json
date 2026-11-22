@@ -24,6 +24,7 @@
     "bad-keyword-argument": ["basic", "legacy", "default", "strict", "all"],
     "bad-match": ["legacy", "default", "strict", "all"],
     "bad-override": ["legacy", "default", "strict", "all"],
+    "bad-override-descriptor": ["strict", "all"],
     "bad-override-explicit": ["legacy", "default", "strict", "all"],
     "bad-override-mutable-attribute": ["default", "strict", "all"],
     "bad-override-param-name": ["default", "strict", "all"],

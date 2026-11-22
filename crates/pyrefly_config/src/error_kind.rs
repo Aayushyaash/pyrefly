@@ -155,6 +155,9 @@ pub enum ErrorKind {
     BadMatch,
     /// A subclass field or method incorrectly overrides a field/method of a parent class.
     BadOverride,
+    /// A descriptor override has an incompatible type when accessed through the class.
+    /// This is a sub-kind of [BadOverride]: suppressing `bad-override` also suppresses this error.
+    BadOverrideDescriptor,
     /// An incompatible override checked only because the member is decorated with `@override`.
     /// This is a sub-kind of [BadOverride].
     BadOverrideExplicit,
@@ -634,7 +637,8 @@ impl ErrorKind {
         match self {
             ErrorKind::AssertTypeUnspellableSubtype => Some(ErrorKind::AssertType),
             ErrorKind::DirectAbstractBaseInstantiation => Some(ErrorKind::BadInstantiation),
-            ErrorKind::BadOverrideExplicit
+            ErrorKind::BadOverrideDescriptor
+            | ErrorKind::BadOverrideExplicit
             | ErrorKind::BadOverrideMutableAttribute
             | ErrorKind::BadOverrideParamName => Some(ErrorKind::BadOverride),
             ErrorKind::ImplicitAnyAttribute
@@ -690,6 +694,7 @@ impl ErrorKind {
             ErrorKind::AbstractMethodWithImplementation => Severity::Ignore,
             ErrorKind::AnyFunctionDecorator => Severity::Ignore,
             ErrorKind::AttributeAssignOnNever => Severity::Warn,
+            ErrorKind::BadOverrideDescriptor => Severity::Ignore,
             ErrorKind::CoverageMissing => Severity::Warn,
             ErrorKind::CoveragePartial => Severity::Warn,
             ErrorKind::Deprecated => Severity::Warn,

@@ -2617,6 +2617,7 @@ mod tests {
     use std::sync::atomic::AtomicBool;
     use std::sync::atomic::Ordering;
 
+    use enum_iterator::all;
     use pretty_assertions::assert_eq;
     use pyrefly_build::source_db::LiveSourceDatabase;
     use pyrefly_python::module_path::ModuleStyle;
@@ -4360,6 +4361,74 @@ output-format = "omit-errors"
             Severity::Ignore
         );
         assert_eq!(errors.severity(ErrorKind::UnboundName), Severity::Ignore);
+    }
+
+    #[test]
+    fn test_descriptor_override_severity_and_presets() {
+        let kind = ErrorKind::BadOverrideDescriptor;
+        let path = test_path("descriptor.py");
+        for preset in all::<Preset>() {
+            let mut config = ConfigFile {
+                root: ConfigBase {
+                    preset: Some(preset),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            config.configure();
+            let expected = match preset {
+                Preset::Strict | Preset::All => Severity::Error,
+                _ => Severity::Ignore,
+            };
+            assert_eq!(config.errors(&path).severity(kind), expected, "{preset}");
+        }
+        for (preset, parent, child, expected) in [
+            (
+                Preset::Strict,
+                None,
+                Some(Severity::Ignore),
+                Severity::Ignore,
+            ),
+            (Preset::Strict, None, Some(Severity::Warn), Severity::Warn),
+            (
+                Preset::Strict,
+                Some(Severity::Ignore),
+                None,
+                Severity::Ignore,
+            ),
+            (Preset::Strict, Some(Severity::Warn), None, Severity::Warn),
+            (
+                Preset::Strict,
+                Some(Severity::Error),
+                Some(Severity::Ignore),
+                Severity::Ignore,
+            ),
+            (Preset::Default, Some(Severity::Warn), None, Severity::Warn),
+            (
+                Preset::Default,
+                Some(Severity::Error),
+                None,
+                Severity::Error,
+            ),
+        ] {
+            let mut errors = ErrorDisplayConfig::default();
+            if let Some(severity) = parent {
+                errors.set_error_severity(ErrorKind::BadOverride, severity);
+            }
+            if let Some(severity) = child {
+                errors.set_error_severity(kind, severity);
+            }
+            let mut config = ConfigFile {
+                root: ConfigBase {
+                    preset: Some(preset),
+                    errors: Some(errors),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            config.configure();
+            assert_eq!(config.errors(&path).severity(kind), expected);
+        }
     }
 
     #[test]
