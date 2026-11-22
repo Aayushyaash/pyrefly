@@ -3897,9 +3897,9 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                         .ty
                 }
                 _ if let Some(ret) = self.call_builtin_enumerate(ty, callee.expr, errors) => ret,
-                // `functools.partial(func, ...)` synthesizes the remaining callable instead of the
-                // opaque stub, so calls on the result are checked (see `alt::functools`).
-                _ if matches!(ty, Type::ClassDef(cls) if cls.is(KnownClass::FunctoolsPartial)) =>
+                // Partial application retains the remaining signature; partialmethod stays nominal
+                // until descriptor access (see `alt::functools`).
+                _ if matches!(ty, Type::ClassDef(cls) if cls.is(KnownClass::FunctoolsPartial) || cls.is(KnownClass::FunctoolsPartialMethod)) =>
                 {
                     self.call_functools_partial(
                         ty,

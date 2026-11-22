@@ -23,8 +23,8 @@ class C[T]:
     def method(self, value: T) -> T: ...
     specialized = partialmethod(method)
 assert_type(C[int]().specialized(1), int)
-assert_type(C[int].specialized(C[int](), 1), int)  # E: assert_type
-assert_type(C.specialized(C[int](), 1), int)  # E: assert_type
+assert_type(C[int].specialized(C[int](), 1), int)  # E: assert_type # E: Argument `Literal[1]` is not assignable to parameter `value` with type `T`
+assert_type(C.specialized(C[int](), 1), int)  # E: assert_type # E: Argument `C[int]` is not assignable to parameter `self` with type `C[T]` # E: Argument `Literal[1]` is not assignable to parameter `value` with type `T`
 "#,
 );
 
@@ -47,6 +47,7 @@ assert_type(Child().cloned(), Child)
 "#,
 );
 
+// Signature-local receiver generics deliberately use the stub's gradual return.
 functools_testcase!(
     test_partialmethod_generic_receiver,
     r#"
@@ -60,7 +61,6 @@ reveal_type(C().specialized())  # E: revealed type: Unknown
 );
 
 functools_testcase!(
-    bug = "partialmethod erases direct descriptor signatures",
     test_partialmethod_get,
     r#"
 from functools import partialmethod
@@ -68,15 +68,14 @@ from typing import reveal_type
 class C:
     def method(self, value: int) -> str: ...
 p = partialmethod(C.method)
-reveal_type(p.__get__(None, C))  # E: revealed type: (...) -> str
-reveal_type(p.__get__(C(), C))  # E: revealed type: (...) -> str
-p.__get__(None, C)(self=C(), value=1)  # WANT: receiver must be positional
-p.__get__(C(), C)("bad")  # WANT: Argument `Literal['bad']` is not assignable to parameter `value` with type `int`
+reveal_type(p.__get__(None, C))  # E: revealed type: (self: C, /, value: int) -> str
+reveal_type(p.__get__(C(), C))  # E: revealed type: (value: int) -> str
+p.__get__(None, C)(self=C(), value=1)  # E: Expected argument `self` to be positional
+p.__get__(C(), C)("bad")  # E: Argument `Literal['bad']` is not assignable to parameter `value` with type `int`
 "#,
 );
 
 functools_testcase!(
-    bug = "nested partialmethod erases remaining parameters",
     test_partialmethod_nested,
     r#"
 from functools import partialmethod
@@ -85,13 +84,12 @@ class C:
     def method(self, value: int, text: str, *, flag: bool = False) -> str: ...
     first = partialmethod(method, 1)
     second = partialmethod(first, "ok", flag=True)
-assert_type(C().second(), str)  # E: assert_type
-C().second(flag=1)  # WANT: Argument `Literal[1]` is not assignable to parameter `flag` with type `bool`
+assert_type(C().second(), str)
+C().second(flag=1)  # E: Argument `Literal[1]` is not assignable to parameter `flag` with type `bool`
 "#,
 );
 
 functools_testcase!(
-    bug = "partialmethod erases the remaining parameters",
     test_partialmethod_signatures,
     r#"
 from functools import partialmethod
@@ -99,41 +97,39 @@ from typing import reveal_type
 class C:
     def method(self, value: int, text: str) -> str: ...
     specialized = partialmethod(method, 1)
-reveal_type(C.specialized)  # E: revealed type: (...) -> str
-reveal_type(C().specialized)  # E: revealed type: (...) -> str
+reveal_type(C.specialized)  # E: revealed type: (self: C, /, text: str) -> str
+reveal_type(C().specialized)  # E: revealed type: (text: str) -> str
 C.specialized(C(), "ok")
 C().specialized("ok")
-C().specialized(1)  # WANT: Argument `Literal[1]` is not assignable to parameter `text` with type `str`
-C().specialized()  # WANT: Missing argument `text`
+C().specialized(1)  # E: Argument `Literal[1]` is not assignable to parameter `text` with type `str`
+C().specialized()  # E: Missing argument `text`
 "#,
 );
 
 functools_testcase!(
-    bug = "partialmethod does not validate bound positional arguments",
     test_partialmethod_bound_arguments,
     r#"
 from functools import partialmethod
 class C:
     def method(self, value: int, text: str) -> str: ...
     valid = partialmethod(method, 1)
-    invalid = partialmethod(method, "bad")  # WANT: Argument `Literal['bad']` is not assignable to parameter `value` with type `int`
-    too_many = partialmethod(method, 1, "ok", 3)  # WANT: Expected 2 positional arguments, got 3
+    invalid = partialmethod(method, "bad")  # E: Argument `Literal['bad']` is not assignable to parameter `value` with type `int`
+    too_many = partialmethod(method, 1, "ok", 3)  # E: Expected 2 positional arguments, got 3
 "#,
 );
 
 functools_testcase!(
-    bug = "partialmethod does not validate keyword binding or overrides",
     test_partialmethod_keywords,
     r#"
 from functools import partialmethod
 class C:
     def method(self, value: int, text: str, *, flag: bool = False) -> str: ...
     specialized = partialmethod(method, text="bound", flag=True)
-    invalid = partialmethod(method, flag=1)  # WANT: Argument `Literal[1]` is not assignable to parameter `flag` with type `bool`
+    invalid = partialmethod(method, flag=1)  # E: Argument `Literal[1]` is not assignable to parameter `flag` with type `bool`
 C().specialized(1)
 C().specialized(1, text="override", flag=False)
-C().specialized(1, text=2)  # WANT: Argument `Literal[2]` is not assignable to parameter `text` with type `str`
-C().specialized(1, "positional")  # WANT: Expected 1 positional argument, got 2
+C().specialized(1, text=2)  # E: Argument `Literal[2]` is not assignable to parameter `text` with type `str`
+C().specialized(1, "positional")  # E: Expected 1 positional argument, got 2
 "#,
 );
 
@@ -168,7 +164,6 @@ assert_type(p.keywords, dict[str, Any])
 );
 
 functools_testcase!(
-    bug = "partialmethod loses signatures through inheritance",
     test_partialmethod_inheritance,
     r#"
 from functools import partialmethod
@@ -178,12 +173,11 @@ class Base:
     specialized = partialmethod(method, flag=True)
 class Child(Base): ...
 assert_type(Child().specialized(1), str)
-Child().specialized("bad")  # WANT: Argument `Literal['bad']` is not assignable to parameter `value` with type `int`
+Child().specialized("bad")  # E: Argument `Literal['bad']` is not assignable to parameter `value` with type `int`
 "#,
 );
 
 functools_testcase!(
-    bug = "partialmethod loses a generic target's remaining signature",
     test_partialmethod_generic,
     r#"
 from functools import partialmethod
@@ -191,8 +185,8 @@ from typing import assert_type
 class C:
     def method[T](self, value: T, count: int) -> list[T]: ...
     specialized = partialmethod(method, count=1)
-assert_type(C().specialized(1), list[int])  # E: assert_type
-assert_type(C().specialized("ok"), list[str])  # E: assert_type
+assert_type(C().specialized(1), list[int])
+assert_type(C().specialized("ok"), list[str])
 "#,
 );
 
@@ -218,7 +212,6 @@ C().arbitrary()
 );
 
 functools_testcase!(
-    bug = "partialmethod loses overload branches",
     test_partialmethod_overloads,
     r#"
 from functools import partialmethod
@@ -231,12 +224,11 @@ class C:
     def method(self, value: int | str) -> int | str: ...
     specialized = partialmethod(method)
 reveal_type(C().specialized(1))  # E: revealed type: int
-reveal_type(C().specialized("ok"))  # E: revealed type: int
+reveal_type(C().specialized("ok"))  # E: revealed type: str
 "#,
 );
 
 testcase!(
-    bug = "partialmethod loses argument validation before Python 3.14",
     test_partialmethod_python313,
     TestEnv::new_with_version(PythonVersion::new(3, 13, 0)),
     r#"
@@ -246,7 +238,7 @@ class C:
     def method(self, value: int) -> str: ...
     specialized = partialmethod(method)
 assert_type(C().specialized(1), str)
-C().specialized("bad")  # WANT: Argument `Literal['bad']` is not assignable to parameter `value` with type `int`
+C().specialized("bad")  # E: Argument `Literal['bad']` is not assignable to parameter `value` with type `int`
 "#,
 );
 
@@ -275,7 +267,6 @@ class C:
 );
 
 testcase!(
-    bug = "partialmethod loses argument validation on Python 3.14",
     test_partialmethod_python314,
     TestEnv::new_with_version(PythonVersion::new(3, 14, 0)),
     r#"
@@ -285,6 +276,6 @@ class C:
     def method(self, value: int) -> str: ...
     specialized = partialmethod(method)
 assert_type(C().specialized(1), str)
-C().specialized("bad")  # WANT: Argument `Literal['bad']` is not assignable to parameter `value` with type `int`
+C().specialized("bad")  # E: Argument `Literal['bad']` is not assignable to parameter `value` with type `int`
 "#,
 );

@@ -5539,6 +5539,11 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
     }
 
     pub fn get_instance_attribute(&self, cls: &ClassType, name: &Name) -> Option<ClassAttribute> {
+        if cls.is(KnownClass::FunctoolsPartialMethod)
+            && let Some(attribute) = self.get_partialmethod_attribute(cls, name)
+        {
+            return Some(attribute);
+        }
         if let Some(attribute) = self.get_django_instance_attribute(cls, name) {
             return Some(attribute);
         }
