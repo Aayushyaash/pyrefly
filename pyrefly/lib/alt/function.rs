@@ -1424,6 +1424,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     getter: self.heap.mk_any_error(),
                     setter: None,
                     has_deleter: false,
+                    descriptor_class: None,
                 });
                 true
             }
@@ -1433,6 +1434,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     getter: self.heap.mk_any_error(),
                     setter: None,
                     has_deleter: false,
+                    descriptor_class: None,
                 });
                 flags.is_cached_property = true;
                 true
@@ -1460,6 +1462,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                         getter: metadata.getter.clone(),
                         setter: metadata.setter.clone(),
                         has_deleter: metadata.has_deleter,
+                        descriptor_class: metadata.descriptor_class.clone(),
                     });
                 }
                 true

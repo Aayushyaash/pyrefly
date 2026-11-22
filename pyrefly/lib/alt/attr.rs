@@ -522,6 +522,7 @@ struct PropertyAttr {
     getter: Type,
     setter: Option<Type>,
     deleter: bool,
+    descriptor_class: Option<Box<ClassType>>,
 }
 
 /// A single, "atomic" attribute base, not coming from a union or an intersection.
@@ -2217,12 +2218,14 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     // TODO(stroxler): it is probably possible to synthesize a forall type here
                     // that uses a type var to propagate the setter. Investigate this option later.
                     let mut getter = property.getter.clone();
-                    getter.set_property_metadata(PropertyMetadata::from_components(
+                    let mut metadata = PropertyMetadata::from_components(
                         PropertyRole::SetterDecorator,
                         &property.getter,
                         property.setter.as_ref(),
                         property.deleter,
-                    ));
+                    );
+                    metadata.descriptor_class = property.descriptor_class.clone();
+                    getter.set_property_metadata(metadata);
                     // TODO(samzhou19815): Support go-to-definition for @property applied symbols
                     acc.found_type(getter, base)
                 } else if attr_name == "deleter" {
@@ -2232,10 +2235,14 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                         getter: property.getter.clone(),
                         setter: property.setter.clone(),
                         has_deleter: true,
+                        descriptor_class: property.descriptor_class.clone(),
                     });
                     acc.found_type(getter, base)
                 } else {
-                    let class = self.stdlib.property();
+                    let class = property
+                        .descriptor_class
+                        .as_deref()
+                        .unwrap_or(self.stdlib.property());
                     match self.get_instance_attribute(class, attr_name) {
                         Some(attr) => acc.found_class_attribute(attr, base),
                         None => acc.not_found(NotFoundOn::ClassInstance(
@@ -2427,9 +2434,15 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             {
                 acc.not_found(NotFoundOn::ClassInstance(*cls.class_object(), base))
             }
-            // Dunders on a property-decorated function resolve against `builtins.property`.
-            AttributeBase1::Property(_) => self.lookup_magic_dunder_attr1(
-                AttributeBase1::ClassInstance(self.stdlib.property().clone()),
+            // Dunders use the nominal descriptor class, with `builtins.property` as the default.
+            AttributeBase1::Property(property) => self.lookup_magic_dunder_attr1(
+                AttributeBase1::ClassInstance(
+                    property
+                        .descriptor_class
+                        .as_deref()
+                        .unwrap_or(self.stdlib.property())
+                        .clone(),
+                ),
                 dunder_name,
                 acc,
             ),
@@ -2800,6 +2813,9 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     getter: ty.clone(),
                     setter: None,
                     deleter,
+                    descriptor_class: ty
+                        .property_metadata()
+                        .and_then(|metadata| metadata.descriptor_class.clone()),
                 }));
             }
             _ if let Some(metadata) = ty.property_metadata()
@@ -2809,6 +2825,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     getter: metadata.getter.clone(),
                     setter: Some(ty.clone()),
                     deleter: metadata.has_deleter,
+                    descriptor_class: metadata.descriptor_class.clone(),
                 }));
             }
             // A `functools.partial(...)` result is a `Callable` with `Params::Partial`; resolve its
