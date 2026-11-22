@@ -195,6 +195,20 @@ mod tests {
     }
 
     #[test]
+    fn test_explicit_override_severity_can_be_configured() {
+        let kind = ErrorKind::BadOverride;
+        assert_eq!(
+            ErrorDisplayConfig::default().severity(kind),
+            Severity::Error
+        );
+        for severity in [Severity::Warn, Severity::Ignore] {
+            let config = ErrorDisplayConfig::new(HashMap::from([(kind, severity)]));
+            assert_eq!(config.severity(kind), severity);
+            assert_eq!(config.severity(ErrorKind::BadAssignment), Severity::Error);
+        }
+    }
+
+    #[test]
     fn test_severity_parent_kind_fallback() {
         // Setting bad-override to ignore should also ignore bad-override-mutable-attribute
         let config =

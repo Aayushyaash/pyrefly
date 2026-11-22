@@ -1430,6 +1430,26 @@ class B(A):
 );
 
 testcase!(
+    test_override_dunder_call_mixed_parents,
+    r#"
+from typing import Protocol, override
+
+class Concrete:
+    def __call__(self, x: int) -> None: ...
+
+class Contract(Protocol):
+    def __call__(self, x: int) -> None: ...
+
+class Implicit(Concrete, Contract):
+    def __call__(self, x: str) -> None: ...  # E: Class member `Implicit.__call__` overrides parent class `Contract` in an inconsistent manner
+
+class Explicit(Concrete, Contract):
+    @override
+    def __call__(self, x: str) -> None: ...  # E: Class member `Explicit.__call__` overrides parent class `Concrete` in an inconsistent manner  # E: Class member `Explicit.__call__` overrides parent class `Contract` in an inconsistent manner
+"#,
+);
+
+testcase!(
     test_override_with_type_alias_param,
     r#"
 from typing import TypeAliasType
@@ -2664,6 +2684,116 @@ class Child(Parent):
     def __init__(self, x: int) -> None:
         pass
     "#,
+);
+
+testcase!(
+    test_override_construction_hooks_from_object,
+    r#"
+from typing import Self, override
+
+class Implicit:
+    def __init__(self, x: int) -> None: ...
+    def __new__(cls, x: int) -> Self:
+        raise NotImplementedError
+    def __init_subclass__(cls, x: int) -> None: ...
+
+class Explicit:
+    @override
+    def __init__(self, x: int) -> None: ...  # E: Class member `Explicit.__init__` overrides parent class `object` in an inconsistent manner
+    @override
+    def __new__(cls, x: int) -> Self:  # E: Class member `Explicit.__new__` overrides parent class `object` in an inconsistent manner
+        raise NotImplementedError
+    @override
+    def __init_subclass__(cls, x: int) -> None: ...  # E: Class member `Explicit.__init_subclass__` overrides parent class `object` in an inconsistent manner
+
+class Empty: ...
+
+class InheritedObject(Empty):
+    @override
+    def __init_subclass__(cls, x: int) -> None: ...  # E: Class member `InheritedObject.__init_subclass__` overrides parent class `Empty` in an inconsistent manner
+
+class Compatible:
+    @override
+    def __init__(self) -> None: ...
+    @override
+    def __new__(cls) -> Self:
+        raise NotImplementedError
+    @override
+    def __init_subclass__(cls) -> None: ...
+"#,
+);
+
+testcase!(
+    test_override_construction_hooks_from_parent,
+    r#"
+from typing import Self, override
+
+class Parent:
+    def __init__(self, x: int) -> None: ...
+    def __new__(cls, x: int) -> Self:
+        raise NotImplementedError
+    def __init_subclass__(cls, x: int = 0) -> None: ...
+
+class Implicit(Parent):
+    def __init__(self, x: str) -> None: ...
+    def __new__(cls, x: str) -> Self:
+        raise NotImplementedError
+    def __init_subclass__(cls, x: str = "") -> None: ...
+
+class Explicit(Parent):
+    @override
+    def __init__(self, x: str) -> None: ...  # E: Class member `Explicit.__init__` overrides parent class `Parent` in an inconsistent manner
+    @override
+    def __new__(cls, x: str) -> Self:  # E: Class member `Explicit.__new__` overrides parent class `Parent` in an inconsistent manner
+        raise NotImplementedError
+    @override
+    def __init_subclass__(cls, x: str = "") -> None: ...  # E: Class member `Explicit.__init_subclass__` overrides parent class `Parent` in an inconsistent manner
+
+class Renamed(Parent):
+    @override
+    def __init__(self, y: int) -> None: ...  # E: Got parameter name `y`, expected `x`
+    @override
+    def __new__(cls, y: int) -> Self:  # E: Got parameter name `y`, expected `x`
+        raise NotImplementedError
+    @override
+    def __init_subclass__(cls, y: int = 0) -> None: ...  # E: Got parameter name `y`, expected `x`
+"#,
+);
+
+testcase!(
+    test_override_construction_hooks_suppressed,
+    r#"
+from typing import Self, final, override
+
+class Parent:
+    def __init__(self, x: int) -> None: ...
+    def __new__(cls, x: int) -> Self:
+        raise NotImplementedError
+    def __init_subclass__(cls, x: int = 0) -> None: ...
+    def ordinary(self, x: int) -> None: ...
+    @final
+    def f(self) -> None: ...
+
+class Child(Parent):
+    @override
+    def __init__(self, x: str) -> None: ...  # pyrefly: ignore[bad-override]
+    @override
+    def __new__(cls, y: int) -> Self:  # pyrefly: ignore[bad-override]
+        raise NotImplementedError
+    @override
+    def __init_subclass__(cls, x: str = "") -> None: ...  # pyrefly: ignore[bad-override]
+
+    @property
+    @override
+    def __class__(self) -> type: ...  # pyrefly: ignore[bad-override]
+
+    @override
+    def ordinary(self, x: str) -> None: ...  # E: Class member `Child.ordinary` overrides parent class `Parent` in an inconsistent manner
+    @override
+    def f(self) -> None: ...  # E: `f` is declared as final
+    @override
+    def missing(self) -> None: ...  # E: no parent class has a matching attribute
+"#,
 );
 
 testcase!(
