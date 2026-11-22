@@ -1405,6 +1405,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                         let elem_tys = self.elts_infer(
                             &x.elts,
                             HintRef::with_ty_opt(hint, elem_hint.as_ref()),
+                            true,
                             errors,
                             iteration_element,
                         );
@@ -1432,10 +1433,13 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 |hint| self.decompose_set(hint),
                 |elem_hint, hint| {
                     self.ifs_infer(&x.generators, errors);
-                    let elem_ty = self.expr_infer_with_hint_promote(
-                        &x.elt,
-                        HintRef::with_ty_opt(hint, elem_hint.as_ref()),
-                        errors,
+                    let elem_hint = HintRef::with_ty_opt(hint, elem_hint.as_ref());
+                    let elem_ty = self.expr_infer_with_hint(&x.elt, elem_hint, errors);
+                    self.check_hashable(&elem_ty, x.elt.range(), "Set element", errors);
+                    let elem_ty = self.promote_with_hint(
+                        elem_ty,
+                        x.elt.range(),
+                        elem_hint,
                         HintCoercion::BestEffort,
                     );
                     self.heap.mk_class_type(self.stdlib.set(elem_ty))
@@ -1809,6 +1813,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
     ) -> Type {
         let has_hint = hint.is_some();
         let ty = self.expr_infer_with_hint(x, hint, errors);
+        self.check_hashable(&ty, x.range(), "Dictionary key", errors);
         self.observe_iteration_element(&ty, iteration_keys);
         let key_ty = self.promote_with_hint(ty, x.range(), hint, hint_coercion);
         if has_hint {
@@ -1823,6 +1828,36 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             self.heap.mk_class_type(self.stdlib.str().clone())
         } else {
             key_ty
+        }
+    }
+
+    /// Reports a set element or dict key whose type is not assignable to `Hashable`, since
+    /// building the container hashes it and raises `TypeError` at runtime.
+    fn check_hashable(
+        &self,
+        ty: &Type,
+        range: TextRange,
+        description: &str,
+        errors: &ErrorCollector,
+    ) {
+        let ty = self.solver().expand(ty.clone(), self);
+        // A subset check would solve placeholder vars to `Hashable`, so types that may contain
+        // one are not checked.
+        if ty.may_contain_placeholder_var() {
+            return;
+        }
+        let hashable = self.heap.mk_class_type(self.stdlib.hashable().clone());
+        if !self.is_subset_eq(&ty, &hashable) {
+            errors
+                .error_builder(
+                    range,
+                    ErrorKind::Unhashable,
+                    format!(
+                        "{description} of type `{}` is not hashable",
+                        self.display(ty)
+                    ),
+                )
+                .emit();
         }
     }
 
@@ -3407,6 +3442,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             let elem_tys = self.elts_infer(
                 &list.elts,
                 HintRef::with_ty_opt(hint, elt_hint.as_ref()),
+                false,
                 errors,
                 iteration_element,
             );
@@ -3415,11 +3451,13 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         }
     }
 
-    /// Helper to infer element types for a list or set.
+    /// Helper to infer element types for a list or set. Set elements must be hashable, so
+    /// `is_set` reports elements that are not. Elements of an unpacked iterable are not checked.
     fn elts_infer(
         &self,
         elts: &[Expr],
         elt_hint: Option<HintRef>,
+        is_set: bool,
         errors: &ErrorCollector,
         iteration_element: Option<&Cell<Option<Type>>>,
     ) -> Vec<Type> {
@@ -3466,6 +3504,9 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             }
             _ => {
                 let ty = self.expr_infer_with_hint(x, elt_hint, errors);
+                if is_set {
+                    self.check_hashable(&ty, x.range(), "Set element", errors);
+                }
                 self.observe_iteration_element(&ty, iteration_types.as_mut());
                 self.promote_with_hint(ty, x.range(), elt_hint, HintCoercion::BestEffort)
             }

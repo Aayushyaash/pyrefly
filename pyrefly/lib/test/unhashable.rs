@@ -8,38 +8,35 @@
 use crate::testcase;
 
 testcase!(
-    bug = "Unhashable set elements are not reported",
     test_unhashable_set_element,
     r#"
 def f(xs: list[int], d: dict[str, int]):
-    {[1]}
-    {1, xs}
-    {d}
-    {x for x in [xs]}
+    {[1]}  # E: Set element of type `list[int]` is not hashable
+    {1, xs}  # E: Set element of type `list[int]` is not hashable
+    {d}  # E: Set element of type `dict[str, int]` is not hashable
+    {x for x in [xs]}  # E: Set element of type `list[int]` is not hashable
     {*[xs]}  # Elements of an unpacked iterable are not checked.
     {[]}  # Types that contain unsolved type variables are not checked.
 "#,
 );
 
 testcase!(
-    bug = "Unhashable dict keys are not reported",
     test_unhashable_dict_key,
     r#"
 def f(xs: list[int], s: set[int]):
-    {[1]: 1}
-    {"a": 1, s: 2}
-    {k: 0 for k in [xs]}
+    {[1]: 1}  # E: Dictionary key of type `list[int]` is not hashable
+    {"a": 1, s: 2}  # E: Dictionary key of type `set[int]` is not hashable
+    {k: 0 for k in [xs]}  # E: Dictionary key of type `list[int]` is not hashable
 "#,
 );
 
 testcase!(
-    bug = "Unhashable set elements and dict keys are not reported",
     test_unhashable_with_hint,
     r#"
-x: set[list[int]] = {[1]}
-y: dict[list[int], int] = {[1]: 1}
-z: set[object] = {[1]}
-w: dict[object, int] = {[1]: 1}
+x: set[list[int]] = {[1]}  # E: Set element of type `list[int]` is not hashable
+y: dict[list[int], int] = {[1]: 1}  # E: Dictionary key of type `list[int]` is not hashable
+z: set[object] = {[1]}  # E: Set element of type `list[int]` is not hashable
+w: dict[object, int] = {[1]: 1}  # E: Dictionary key of type `list[int]` is not hashable
 "#,
 );
 
@@ -74,7 +71,6 @@ def f(
 );
 
 testcase!(
-    bug = "Unhashable unions, bounded type variables, and classes are not reported",
     test_unhashable_types,
     r#"
 from dataclasses import dataclass
@@ -94,10 +90,10 @@ class Frozen:
     x: int
 
 def f(u: int | list[int], t: T, n: NoHash, e: Eq, fr: Frozen, tup: tuple[list[int]]) -> T:
-    {u}
-    {t}
-    {n}
-    {e}
+    {u}  # E: Set element of type `int | list[int]` is not hashable
+    {t}  # E: Set element of type `T` is not hashable
+    {n}  # E: Set element of type `NoHash` is not hashable
+    {e}  # E: Set element of type `Eq` is not hashable
     {fr}
     {tup}  # The tuple's elements are not checked.
     return t
