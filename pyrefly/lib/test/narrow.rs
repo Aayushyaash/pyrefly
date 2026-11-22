@@ -1402,6 +1402,21 @@ def f(cls: type[int], x: int | str) -> None:
 );
 
 testcase!(
+    bug = "Negative narrowing discards an intersection containing Any",
+    test_is_not_instance_gradual_intersection,
+    r#"
+from typing import Any, reveal_type
+
+def f(found: list[Any]) -> None:
+    value = min(found, key=len)
+    reveal_type(value)  # E: revealed type: Sized & Any
+    if isinstance(value, str):
+        return
+    reveal_type(value)  # E: revealed type: Never
+    "#,
+);
+
+testcase!(
     test_is_not_instance_gradual_base,
     r#"
 from typing import Any, Self, TypedDict, assert_type
