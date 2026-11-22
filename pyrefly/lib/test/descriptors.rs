@@ -211,10 +211,9 @@ def f(c: C):
 
 // https://github.com/pyrefly-org/pyrefly/issues/5519
 testcase!(
-    bug = "Property subclasses lose the getter type",
     test_property_subclass_read_only,
     r#"
-from typing import Any, assert_type
+from typing import assert_type
 
 class Property(property):
     def describe(self) -> str:
@@ -227,19 +226,18 @@ class C:
 
 class Child(C): ...
 
-assert_type(C().value, Any)
-assert_type(Child().value, Any)
+assert_type(C().value, int)
+assert_type(Child().value, int)
 assert_type(C.value.describe(), str)
 assert_type(Child.value.describe(), str)
-C().value = 2
+C().value = 2  # E: read-only property and cannot be set
     "#,
 );
 
 testcase!(
-    bug = "Property subclasses lose the getter type",
     test_property_subclass_inheritance,
     r#"
-from typing import Any, assert_type
+from typing import assert_type
 
 class Property(property): ...
 class Mixin: ...
@@ -254,17 +252,16 @@ class C[T]:
 
 class Child(C[int]): ...
 
-assert_type(C[int]().value, Any)
-assert_type(C[str]().value, Any)
-assert_type(Child().value, Any)
+assert_type(C[int]().value, int)
+assert_type(C[str]().value, str)
+assert_type(Child().value, int)
     "#,
 );
 
 testcase!(
-    bug = "Property subclasses lose accessor types",
     test_property_subclass_setter_and_deleter,
     r#"
-from typing import Any, assert_type
+from typing import assert_type
 
 class Property(property):
     def describe(self) -> str:
@@ -284,10 +281,10 @@ class C:
         pass
 
 c = C()
-assert_type(c.value, Any)
-C.value.describe()  # E: Object of class `property` has no attribute `describe`
+assert_type(c.value, int)
+assert_type(C.value.describe(), str)
 c.value = 2
-c.value = "wrong"
+c.value = "wrong"  # E: `Literal['wrong']` is not assignable to parameter `new_value` with type `int`
 del c.value
     "#,
 );
@@ -328,7 +325,6 @@ del c.writable
 );
 
 testcase!(
-    bug = "Imported property subclasses lose the getter type",
     test_property_subclass_imported,
     {
         let mut env = TestEnv::new();
@@ -339,7 +335,7 @@ testcase!(
         env
     },
     r#"
-from typing import Any, assert_type
+from typing import assert_type
 from lib import DerivedProperty
 
 class C:
@@ -347,7 +343,7 @@ class C:
     def value(self) -> str:
         return "value"
 
-assert_type(C().value, Any)
+assert_type(C().value, str)
     "#,
 );
 
@@ -489,10 +485,9 @@ assert_type(C().value, Any)
 );
 
 testcase!(
-    bug = "Specialized property subclasses lose the getter type",
     test_property_subclass_specialized,
     r#"
-from typing import Any, assert_type
+from typing import assert_type
 
 class Property[T](property):
     def result_type(self) -> type[T]:
@@ -503,7 +498,7 @@ class C:
     def value(self) -> int:
         return 1
 
-assert_type(C().value, Any)
+assert_type(C().value, int)
 assert_type(C.value.result_type(), type[int])
     "#,
 );

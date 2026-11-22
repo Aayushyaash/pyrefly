@@ -1359,6 +1359,14 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             Some(CalleeKind::Class(ClassKind::Property(name))) => {
                 Some(SpecialDecorator::Property(name, None))
             }
+            Some(CalleeKind::Class(ClassKind::Class))
+                if let Some(cls) = self.property_subclass(&decorator.ty) =>
+            {
+                Some(SpecialDecorator::Property(
+                    cls.name(self).clone(),
+                    Some(cls),
+                ))
+            }
             Some(CalleeKind::Class(ClassKind::CachedProperty(name))) => {
                 Some(SpecialDecorator::CachedProperty(name))
             }
