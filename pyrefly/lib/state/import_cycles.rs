@@ -5,14 +5,30 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-//! Syntactic import-graph collection, independent of bindings and type solving.
+//! The `import-cycle` diagnostic, for modules that import themselves through other modules.
 //!
-//! Reading the first-party import closure may load and parse additional modules, so this
-//! work is skipped unless a checked module enables `import-cycle`. Source import targets
-//! are cached with the load they came from and resolved in the current transaction.
+//! The analysis is a separate pass that runs once a transaction finishes a run. It reads only
+//! import statements and resolves them with the transaction's import resolution, so it needs no
+//! bindings or types and stays independent of how modules are bound and solved. Finding every
+//! cycle means reading the imports of every module that a checked module reaches, which may mean
+//! loading and parsing them again, so unlike other diagnostics, which are always computed and
+//! then filtered by severity, the pass runs only when `import-cycle` is enabled for a checked
+//! module.
+//!
+//! Imports are read from the source as written: every import statement counts, including
+//! imports in functions, under `if TYPE_CHECKING:`, and in branches that never run. `import a.b`
+//! imports `a` and `a.b`, and `from a import b` imports `a` and, if it is a module, `a.b`. Only
+//! first-party source modules take part, so an import that resolves to a stub or to a module in
+//! a site-package path ends the chain. An import of a file that is open in an editor reaches its
+//! open contents, as checking the open file does.
+//!
+//! Each strongly connected component of the import graph gets one diagnostic, reported by the
+//! component's module whose name sorts first among those that report `import-cycle`, at an
+//! import that starts a shortest cycle through that module.
 
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use dupe::Dupe;
@@ -21,6 +37,7 @@ use pyrefly_build::handle::Handle;
 use pyrefly_python::module_name::ModuleName;
 use pyrefly_python::module_path::ModulePath;
 use pyrefly_python::module_path::ModulePathDetails;
+use pyrefly_util::tarjan::Tarjan;
 use pyrefly_util::task_heap::Cancelled;
 use pyrefly_util::thread_pool::ThreadPool;
 use rayon::prelude::*;
@@ -102,6 +119,51 @@ impl ImportCycles {
         };
         let graph = self.graph(transaction, &reporters, pool, &check_cancelled)?;
 
+        let mut tarjan = Tarjan::new();
+        let visit = |handle: &Handle, f: &mut dyn FnMut(Handle)| {
+            for (target, _) in &graph[handle].edges {
+                f(target.dupe());
+            }
+        };
+        let mut seen = HashSet::new();
+        let mut errors = HashMap::new();
+        for handle in graph.keys() {
+            check_cancelled()?;
+            let scc = tarjan.root(handle.dupe(), &visit);
+            if !seen.insert(scc) {
+                continue;
+            }
+            let members: HashSet<&Handle> = tarjan.iter_scc(scc).collect();
+            if members.len() < 2 {
+                continue;
+            }
+            let Some(owner) = members
+                .iter()
+                .copied()
+                .filter(|member| reporters.contains(*member))
+                .min_by(|a, b| {
+                    (a.module().as_str(), a.path()).cmp(&(b.module().as_str(), b.path()))
+                })
+            else {
+                continue;
+            };
+            let (range, cycle) = shortest_cycle(&graph, &members, owner);
+            let load = &graph[owner].imports.load;
+            let collector = ErrorCollector::new(load.module_info.dupe(), load.error_style);
+            let chain = cycle
+                .iter()
+                .map(|handle| format!("`{}`", handle.module()))
+                .collect::<Vec<_>>()
+                .join(" -> ");
+            collector
+                .error_builder(
+                    range,
+                    ErrorKind::ImportCycle,
+                    format!("Import cycle: {chain}"),
+                )
+                .emit();
+            errors.insert(owner.dupe(), collector.finish());
+        }
         Ok(Self {
             imports: Arc::new(
                 graph
@@ -109,7 +171,7 @@ impl ImportCycles {
                     .map(|(handle, node)| (handle, node.imports))
                     .collect(),
             ),
-            errors: Arc::new(HashMap::new()),
+            errors: Arc::new(errors),
         })
     }
 
@@ -232,6 +294,40 @@ fn reports(transaction: &Transaction, handle: &Handle) -> bool {
                     .severity(ErrorKind::ImportCycle)
                     .is_enabled()
         })
+}
+
+/// A shortest cycle from `owner` back to itself within the strongly connected component
+/// `members`, along with the range of its first import. The cycle starts and ends with `owner`.
+fn shortest_cycle(
+    graph: &HashMap<Handle, Node>,
+    members: &HashSet<&Handle>,
+    owner: &Handle,
+) -> (TextRange, Vec<Handle>) {
+    // Each reached module maps to the module that first reached it, and the range of the import
+    // that `owner` started the path with.
+    let mut reached: HashMap<&Handle, (&Handle, TextRange)> = HashMap::new();
+    let mut queue = VecDeque::from([owner]);
+    while let Some(handle) = queue.pop_front() {
+        let first = reached.get(handle).map(|(_, first)| *first);
+        for (target, range) in &graph[handle].edges {
+            let first_range = first.unwrap_or(*range);
+            if target == owner {
+                let mut cycle = vec![owner.dupe(), handle.dupe()];
+                let mut current = handle;
+                while let Some((previous, _)) = reached.get(current) {
+                    cycle.push((*previous).dupe());
+                    current = previous;
+                }
+                cycle.reverse();
+                return (first_range, cycle);
+            }
+            if members.contains(target) && target != owner && !reached.contains_key(target) {
+                reached.insert(target, (handle, first_range));
+                queue.push_back(target);
+            }
+        }
+    }
+    unreachable!("a module in a strongly connected component of size 2 or more is on a cycle")
 }
 
 /// The modules that the import statements of `ast` name, in source order.

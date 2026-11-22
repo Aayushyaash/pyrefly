@@ -48,29 +48,26 @@ fn env_with(modules: &[(&str, &str, &str)]) -> TestEnv {
 }
 
 testcase!(
-    bug = "Import cycles are not reported",
     test_two_module_cycle,
     env_with(&[("x", "x.py", "import main\n")]),
     r#"
-import x
+import x  # E: Import cycle: `main` -> `x` -> `main`
 "#,
 );
 
 testcase!(
-    bug = "Import cycles are not reported",
     test_three_module_cycle,
     env_with(&[
         ("x", "x.py", "from y import g\ndef f() -> None: ...\n"),
         ("y", "y.py", "from main import h\ndef g() -> None: ...\n"),
     ]),
     r#"
-from x import f
+from x import f  # E: Import cycle: `main` -> `x` -> `y` -> `main`
 def h() -> None: ...
 "#,
 );
 
 testcase!(
-    bug = "Import cycles are not reported",
     test_type_checking_cycle,
     env_with(&[(
         "x",
@@ -80,17 +77,16 @@ testcase!(
     r#"
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from x import B
+    from x import B  # E: Import cycle: `main` -> `x` -> `main`
 class A: ...
 "#,
 );
 
 testcase!(
-    bug = "Import cycles are not reported",
     test_function_local_import_cycle,
     env_with(&[("x", "x.py", "def f() -> None:\n    import main\n")]),
     r#"
-import x
+import x  # E: Import cycle: `main` -> `x` -> `main`
 "#,
 );
 
@@ -126,11 +122,10 @@ import lib
 
 // Only a site-package path makes a module installed, not a directory name.
 testcase!(
-    bug = "Import cycles are not reported",
     test_directory_named_site_packages_is_first_party,
     env_with(&[("x", "site-packages/x.py", "import main\n")]),
     r#"
-import x
+import x  # E: Import cycle: `main` -> `x` -> `main`
 "#,
 );
 
@@ -148,23 +143,25 @@ import x
 
 // A strongly connected component with several cycles gets one diagnostic.
 testcase!(
-    bug = "Import cycles are not reported",
     test_one_error_per_component,
     env_with(&[
         ("x", "x.py", "import main\n"),
         ("y", "y.py", "import main\n")
     ]),
     r#"
-import x
+import x  # E: Import cycle: `main` -> `x` -> `main`
 import y
 "#,
 );
 
 // The cycle is reported in `a`, the module of the cycle whose name sorts first.
 testcase!(
-    bug = "Import cycles are not reported",
     test_cycle_reported_in_first_module,
-    env_with(&[("a", "a.py", "import main\n",)]),
+    env_with(&[(
+        "a",
+        "a.py",
+        "import main  # E: Import cycle: `a` -> `main` -> `a`\n",
+    )]),
     r#"
 import a
 "#,
@@ -172,35 +169,36 @@ import a
 
 // Importing `pkg.sub` also imports the package `pkg`.
 testcase!(
-    bug = "Import cycles are not reported",
     test_import_of_submodule_imports_package,
     env_with(&[
         ("pkg", "pkg/__init__.py", "import main\n"),
         ("pkg.sub", "pkg/sub.py", ""),
     ]),
     r#"
-import pkg.sub
+import pkg.sub  # E: Import cycle: `main` -> `pkg` -> `main`
 "#,
 );
 
 testcase!(
-    bug = "Import cycles are not reported",
     test_from_import_of_submodule,
     env_with(&[
         ("pkg", "pkg/__init__.py", ""),
         ("pkg.child", "pkg/child.py", "import main\n"),
     ]),
     r#"
-from pkg import child
+from pkg import child  # E: Import cycle: `main` -> `pkg.child` -> `main`
 "#,
 );
 
 // `from . import sibling` imports the package itself, which imports `pkg.mod`.
 testcase!(
-    bug = "Import cycles are not reported",
     test_relative_import_of_package,
     env_with(&[
-        ("pkg", "pkg/__init__.py", "from . import mod\n",),
+        (
+            "pkg",
+            "pkg/__init__.py",
+            "from . import mod  # E: Import cycle: `pkg` -> `pkg.mod` -> `pkg`\n",
+        ),
         ("pkg.mod", "pkg/mod.py", "from . import sibling\n"),
         ("pkg.sibling", "pkg/sibling.py", ""),
     ]),
@@ -277,10 +275,9 @@ fn test_cycle_through_disabled_modules() {
     let mut transaction = state.new_one_shot_transaction(Require::Exports);
     transaction.set_memory(env.get_memory());
     transaction.run(&handles, Require::Errors, None);
-    // Import cycles are not reported.
     assert_eq!(
         import_cycle_errors(&transaction, &handles),
-        Vec::<String>::new()
+        ["c:1:8-9: Import cycle: `c` -> `a` -> `b` -> `c`"]
     );
 }
 
@@ -314,8 +311,7 @@ fn test_edit_creates_and_breaks_cycle() {
     // stops being reported without any change to the types that `a` reads.
     assert_eq!(
         edit_b("def f() -> None:\n    import a\n"),
-        // Import cycles are not reported.
-        Vec::<String>::new()
+        ["a:1:8-9: Import cycle: `a` -> `b` -> `a`"]
     );
     assert_eq!(edit_b("def f() -> None:\n    pass\n"), Vec::<String>::new());
 }
@@ -347,8 +343,7 @@ fn test_cycle_reported_by_module_checked_as_dependency() {
             PathBuf::from("a.py"),
             Some(Arc::new(FileContents::from_source("import b\n".to_owned()))),
         )]),
-        // Import cycles are not reported.
-        Vec::<String>::new()
+        ["a:1:8-9: Import cycle: `a` -> `b` -> `a`"]
     );
 }
 
@@ -382,10 +377,9 @@ fn test_cycle_through_open_file() {
         None,
         None,
     );
-    // Import cycles are not reported.
     assert_eq!(
         import_cycle_errors(&state.transaction(), &[open]),
-        Vec::<String>::new()
+        ["a:1:8-9: Import cycle: `a` -> `b` -> `a`"]
     );
 }
 
@@ -411,10 +405,9 @@ fn test_module_read_only_for_imports_is_not_reported_to_subscriber() {
     );
     // Checking `a` skips the inactive import of `b`, so only reading the imports of `a` loads
     // `b`, and the subscriber hears only of the modules that are checked.
-    // Import cycles are not reported.
     assert_eq!(
         import_cycle_errors(&state.transaction(), &[handle(&env, "a")]),
-        Vec::<String>::new()
+        ["a:3:12-13: Import cycle: `a` -> `b` -> `a`"]
     );
     let b = handle(&env, "b");
     assert!(
@@ -489,10 +482,9 @@ fn test_cycle_through_search_path_in_site_packages() {
         Some(Arc::new(FileContents::from_source(String::new()))),
     )]);
     transaction.run(&[a.dupe(), open_b], Require::Errors, None);
-    // Import cycles are not reported.
     assert_eq!(
         import_cycle_errors(&transaction, &[a]),
-        Vec::<String>::new()
+        ["a:2:8-9: Import cycle: `a` -> `b` -> `c` -> `a`"]
     );
 }
 
@@ -528,7 +520,9 @@ fn test_config_change_enables_and_disables_cycle() {
         );
         import_cycle_errors(&state.transaction(), &handles)
     };
-    // Import cycles are not reported.
-    assert_eq!(set_enabled(true), Vec::<String>::new());
+    assert_eq!(
+        set_enabled(true),
+        ["a:1:8-9: Import cycle: `a` -> `b` -> `a`"]
+    );
     assert_eq!(set_enabled(false), Vec::<String>::new());
 }
