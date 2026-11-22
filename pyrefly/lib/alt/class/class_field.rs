@@ -688,7 +688,12 @@ impl ClassField {
                 let mut ty = ty.clone();
                 f(&mut ty);
                 let mut descriptor = descriptor.clone();
-                descriptor.cls.visit_mut(f);
+                match &ty {
+                    Type::ClassType(cls) if cls.partialmethod_signature().is_some() => {
+                        descriptor.cls = cls.clone();
+                    }
+                    _ => descriptor.cls.visit_mut(f),
+                }
                 Self(
                     ClassFieldInner::Descriptor {
                         ty,
@@ -801,6 +806,9 @@ impl ClassField {
                 Type::Forall(f) if matches!(f.body, Forallable::Function(_)) => {
                     ty.subst_mut_fn(&mut |q| mp.get(q).map(|ty| (*ty).clone()))
                 }
+                Type::ClassType(cls) if cls.partialmethod_signature().is_some() => {
+                    ty.subst_mut_fn(&mut |q| mp.get(q).map(|ty| (*ty).clone()))
+                }
                 _ => {
                     let mut qs: SmallSet<&Quantified> = SmallSet::new();
                     ty.collect_quantifieds(&mut qs);
@@ -818,8 +826,7 @@ impl ClassField {
     ) -> Self {
         self.instantiate_helper(&mut |ty| {
             ty.subst_self_type_mut(&self_type);
-            let transforms_tparams = ty.has_toplevel_func_metadata();
-            if transforms_tparams {
+            let add_class_tparams = |ty: &mut Type| {
                 ty.transform_toplevel_callable_signatures(|callable, tparams| {
                     let Some(cls_tparams) = &cls_tparams else {
                         return;
@@ -834,6 +841,15 @@ impl ClassField {
                         *tparams = Some(Arc::new(new_tparams));
                     }
                 });
+            };
+            if let Type::ClassType(cls) = ty
+                && let Some(signature) = cls.partialmethod_signature()
+            {
+                let mut signature = signature.clone();
+                add_class_tparams(&mut signature);
+                *cls = cls.clone().with_partialmethod_signature(signature);
+            } else if ty.has_toplevel_func_metadata() {
+                add_class_tparams(ty);
             } else if let Some(cls_tparams) = &cls_tparams {
                 let mut qs: SmallSet<&Quantified> = SmallSet::new();
                 ty.collect_quantifieds(&mut qs);

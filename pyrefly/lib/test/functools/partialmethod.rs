@@ -14,7 +14,6 @@ use crate::test::util::TestEnv;
 use crate::testcase;
 
 functools_testcase!(
-    bug = "partialmethod keeps class type parameters rigid on class access",
     test_partialmethod_generic_class,
     r#"
 from functools import partialmethod
@@ -23,8 +22,8 @@ class C[T]:
     def method(self, value: T) -> T: ...
     specialized = partialmethod(method)
 assert_type(C[int]().specialized(1), int)
-assert_type(C[int].specialized(C[int](), 1), int)  # E: assert_type # E: Argument `Literal[1]` is not assignable to parameter `value` with type `T`
-assert_type(C.specialized(C[int](), 1), int)  # E: assert_type # E: Argument `C[int]` is not assignable to parameter `self` with type `C[T]` # E: Argument `Literal[1]` is not assignable to parameter `value` with type `T`
+assert_type(C[int].specialized(C[int](), 1), int)
+assert_type(C.specialized(C[int](), 1), int)
 "#,
 );
 
