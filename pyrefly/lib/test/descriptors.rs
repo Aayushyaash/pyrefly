@@ -293,10 +293,9 @@ del c.value
 );
 
 testcase!(
-    bug = "Property subclass constructors lose accessor types",
     test_property_subclass_constructor,
     r#"
-from typing import Any, assert_type
+from typing import assert_type
 
 class Property(property):
     def describe(self) -> str:
@@ -317,13 +316,13 @@ class C:
     writable = DerivedProperty(fget=get_value, fset=set_value, fdel=del_value)
 
 c = C()
-assert_type(c.read_only, Any)
-assert_type(c.writable, Any)
+assert_type(c.read_only, int)
+assert_type(c.writable, int)
 assert_type(C.read_only.describe(), str)
 assert_type(C.writable.describe(), str)
-c.read_only = 2
+c.read_only = 2  # E: read-only property and cannot be set
 c.writable = 2
-c.writable = "wrong"
+c.writable = "wrong"  # E: `Literal['wrong']` is not assignable to parameter `value` with type `int`
 del c.writable
     "#,
 );

@@ -2913,6 +2913,55 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         .or_else(|| self.get_django_class_field_type(ty, class, name, field_definition))
     }
 
+    /// The descriptor type of an ordinary property subclass, preserving its specialization.
+    /// Custom constructors and accessors stay on the ordinary descriptor path.
+    pub(crate) fn property_subclass(&self, ty: &Type) -> Option<ClassType> {
+        let (cls, specialized) = match ty {
+            Type::ClassDef(cls) => (cls, None),
+            Type::SpecializedClassDef(cls) => (cls.class_object(), Some(cls)),
+            _ => return None,
+        };
+        if !self.has_superclass(cls, self.stdlib.property().class_object())
+            || self
+                .get_metadata_for_class(cls)
+                .custom_metaclass()
+                .is_some()
+        {
+            return None;
+        }
+        let property_methods = [
+            dunder::NEW,
+            dunder::INIT,
+            dunder::GET,
+            dunder::SET,
+            dunder::DELETE,
+            Name::new_static("getter"),
+            Name::new_static("setter"),
+            Name::new_static("deleter"),
+        ];
+        let mut subclasses = iter::once(cls).chain(
+            self.get_mro_for_class(cls)
+                .ancestors(self.stdlib)
+                .map(ClassType::class_object)
+                .take_while(|base| !base.is(KnownClass::Property)),
+        );
+        if subclasses.any(|base| {
+            self.get_class_fields(base)
+                .is_none_or(|fields| property_methods.iter().any(|name| fields.contains(name)))
+                || [dunder::NEW, dunder::INIT].iter().any(|name| {
+                    self.get_synthesized_field_from_current_class_only(base, name)
+                        .is_some()
+                })
+        }) {
+            return None;
+        }
+        Some(
+            specialized
+                .cloned()
+                .unwrap_or_else(|| self.promote_nontypeddict_silently_to_classtype(cls)),
+        )
+    }
+
     /// Recognize `x = property(fget, fset, fdel)` and return the corresponding
     /// property type, mirroring what the `@property` decorator path produces.
     fn get_property_class_field_type(
@@ -2930,12 +2979,10 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         let call = expr.as_call_expr()?;
         let errors = self.error_swallower();
         let callee_ty = self.expr_infer(&call.func, &errors);
-        if !matches!(
-            callee_ty.callee_kind(self),
-            Some(CalleeKind::Class(ClassKind::Property(_)))
-        ) {
-            return None;
-        }
+        let descriptor_class = match callee_ty.callee_kind(self) {
+            Some(CalleeKind::Class(ClassKind::Property(_))) => None,
+            _ => Some(self.property_subclass(&callee_ty)?),
+        };
 
         let getter = self.property_constructor_arg(class, name, call, 0, "fget", &errors)?;
         let setter = self.property_constructor_arg(class, name, call, 1, "fset", &errors);
@@ -2948,8 +2995,9 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         } else {
             PropertyRole::Getter
         };
-        let metadata =
+        let mut metadata =
             PropertyMetadata::from_components(role, &getter, setter.as_ref(), has_deleter);
+        metadata.descriptor_class = descriptor_class.map(Box::new);
         let mut primary = setter.unwrap_or(getter);
         if !primary.set_property_metadata(metadata) {
             // `primary` isn't a function-like type; fall back to the default path
