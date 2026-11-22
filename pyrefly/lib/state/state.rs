@@ -132,6 +132,7 @@ use crate::module::typeshed::custom_typeshed_stdlib_config;
 use crate::solver::solver::VarRecurser;
 use crate::state::epoch::Epoch;
 use crate::state::errors::Errors;
+use crate::state::errors::LoadErrors;
 use crate::state::load::FileContents;
 use crate::state::load::Load;
 use crate::state::loader::FindingOrError;
@@ -1220,19 +1221,14 @@ impl<'a> Transaction<'a> {
                 .into_iter()
                 .filter_map(|handle| {
                     self.with_module_config_inner(handle, |config, x| {
-                        let load = x.get_load()?;
-                        let parse_errors = x.parse_errors();
-                        let binding_errors = x.binding_errors();
-                        let solve_diagnostics = x.solve_errors();
-                        let module_ranges = x.module_ranges();
-                        Some((
-                            load,
-                            parse_errors,
-                            binding_errors,
-                            solve_diagnostics,
-                            module_ranges,
-                            config.dupe(),
-                        ))
+                        Some(LoadErrors {
+                            load: x.get_load()?,
+                            parse_errors: x.parse_errors(),
+                            binding_errors: x.binding_errors(),
+                            solve_errors: x.solve_errors(),
+                            module_ranges: x.module_ranges(),
+                            config: config.dupe(),
+                        })
                     })
                 })
                 .collect(),

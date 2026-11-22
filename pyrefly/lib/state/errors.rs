@@ -282,15 +282,16 @@ impl ModuleRanges {
     }
 }
 
-/// A module's load, its parse, binding and solve diagnostics, its ranges, and its config.
-type LoadErrors = (
-    Arc<Load>,
-    Option<ModuleDiagnostics>,
-    Option<ModuleDiagnostics>,
-    Option<ModuleDiagnostics>,
-    Option<Arc<ModuleRanges>>,
-    ArcId<ConfigFile>,
-);
+/// A module's diagnostics, with what collating them needs.
+#[derive(Debug)]
+pub struct LoadErrors {
+    pub(crate) load: Arc<Load>,
+    pub(crate) parse_errors: Option<ModuleDiagnostics>,
+    pub(crate) binding_errors: Option<ModuleDiagnostics>,
+    pub(crate) solve_errors: Option<ModuleDiagnostics>,
+    pub(crate) module_ranges: Option<Arc<ModuleRanges>>,
+    pub(crate) config: ArcId<ConfigFile>,
+}
 
 /// Below this many modules, `Errors` collates on the calling thread, where the work is
 /// too small to pay for moving it to a thread pool.
@@ -362,7 +363,7 @@ impl BaselineApplyResult {
 
 impl Errors {
     pub fn new(mut loads: Vec<LoadErrors>) -> Self {
-        loads.sort_by_key(|x| x.0.module_info.path().dupe());
+        loads.sort_by_key(|x| x.load.module_info.path().dupe());
         Self { loads }
     }
 
@@ -415,7 +416,12 @@ impl Errors {
     ) -> (BorrowedCollectedErrors<'_>, Vec<Error>) {
         let (errors, unused): (Vec<_>, Vec<_>) = self
             .map_modules(|module| {
-                let (load, _, _, _, module_ranges, config) = module;
+                let LoadErrors {
+                    load,
+                    module_ranges,
+                    config,
+                    ..
+                } = module;
                 let module_errors = Self::collect_module_error_refs(module).unwrap_or_default();
                 let path = load.module_info.path();
                 let module_unused = Self::collect_unused_ignore_errors_for_module(
@@ -443,7 +449,14 @@ impl Errors {
     /// Collate one module's diagnostics, or `None` if the module does not report any.
     /// Each category of the result is sorted by range.
     fn collect_module_error_refs(
-        (load, parse_errors, binding_errors, solve_errors, module_ranges, config): &LoadErrors,
+        LoadErrors {
+            load,
+            parse_errors,
+            binding_errors,
+            solve_errors,
+            module_ranges,
+            config,
+        }: &LoadErrors,
     ) -> Option<BorrowedCollectedErrors<'_>> {
         if load.error_style == ErrorStyle::Never {
             return None;
@@ -519,9 +532,9 @@ impl Errors {
             let checked_paths: HashSet<_> = self
                 .loads
                 .iter()
-                .filter(|(load, _, _, _, _, _)| load.error_style != ErrorStyle::Never)
-                .map(|(load, _, _, _, _, _)| {
-                    normalize_baseline_path(load.module_info.path().as_path(), relative_to)
+                .filter(|module| module.load.error_style != ErrorStyle::Never)
+                .map(|module| {
+                    normalize_baseline_path(module.load.module_info.path().as_path(), relative_to)
                 })
                 .collect();
             let result = processor.process_errors(ordinary, baseline, &checked_paths, scope);
@@ -635,7 +648,7 @@ impl Errors {
     fn config_by_path(&self) -> SmallMap<&ModulePath, &ArcId<ConfigFile>> {
         self.loads
             .iter()
-            .map(|(load, _, _, _, _, config)| (load.module_info.path(), config))
+            .map(|module| (module.load.module_info.path(), &module.config))
             .collect()
     }
 
@@ -673,7 +686,7 @@ impl Errors {
         // Match exact comment ranges so one directive cannot hide another directive's diagnostic.
         self.loads
             .iter()
-            .flat_map(|(load, ..)| {
+            .flat_map(|LoadErrors { load, .. }| {
                 let module = &load.module_info;
                 module
                     .ignore()
@@ -711,7 +724,7 @@ impl Errors {
 
     pub fn collect_ignores(&self) -> SmallMap<&ModulePath, &Ignore> {
         let mut ignore_collection: SmallMap<&ModulePath, &Ignore> = SmallMap::new();
-        for (load, _, _, _, _, _) in &self.loads {
+        for LoadErrors { load, .. } in &self.loads {
             let module_path = load.module_info.path();
             let ignores = load.module_info.ignore();
             ignore_collection.insert(module_path, ignores);
@@ -745,7 +758,13 @@ impl Errors {
                 .or_default()
                 .push(error);
         }
-        self.map_modules(|(load, _, _, _, module_ranges, config)| {
+        self.map_modules(|module| {
+            let LoadErrors {
+                load,
+                module_ranges,
+                config,
+                ..
+            } = module;
             let path = load.module_info.path();
             let affected = affected_by_suppression_by_module
                 .get(path)
@@ -1015,7 +1034,7 @@ impl Errors {
             };
             let mut result = CollectedErrors::default();
             errors.into_owned(&mut result);
-            let module_info = &module.0.module_info;
+            let module_info = &module.load.module_info;
             let output_errors = Self::merge_display_errors(result.ordinary, result.directives);
             Expectation::parse(module_info.dupe(), module_info.contents()).check(&output_errors)?;
         }
