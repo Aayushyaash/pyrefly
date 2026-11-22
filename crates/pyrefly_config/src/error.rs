@@ -196,7 +196,8 @@ mod tests {
 
     #[test]
     fn test_explicit_override_severity_can_be_configured() {
-        let kind = ErrorKind::BadOverride;
+        let kind = ErrorKind::BadOverrideExplicit;
+        assert_eq!(kind.parent_kind(), Some(ErrorKind::BadOverride));
         assert_eq!(
             ErrorDisplayConfig::default().severity(kind),
             Severity::Error
@@ -205,7 +206,15 @@ mod tests {
             let config = ErrorDisplayConfig::new(HashMap::from([(kind, severity)]));
             assert_eq!(config.severity(kind), severity);
             assert_eq!(config.severity(ErrorKind::BadAssignment), Severity::Error);
+            assert_eq!(config.severity(ErrorKind::BadOverride), Severity::Error);
+            assert_eq!(
+                config.severity(ErrorKind::BadOverrideParamName),
+                Severity::Error
+            );
         }
+        let config =
+            ErrorDisplayConfig::new(HashMap::from([(ErrorKind::BadOverride, Severity::Ignore)]));
+        assert_eq!(config.severity(kind), Severity::Ignore);
     }
 
     #[test]

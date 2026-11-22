@@ -155,6 +155,9 @@ pub enum ErrorKind {
     BadMatch,
     /// A subclass field or method incorrectly overrides a field/method of a parent class.
     BadOverride,
+    /// An incompatible override checked only because the member is decorated with `@override`.
+    /// This is a sub-kind of [BadOverride].
+    BadOverrideExplicit,
     /// A subclass field overrides a mutable attribute of a parent class with an incompatible type.
     /// Mutable (read-write) attributes require invariant types, unlike read-only attributes or
     /// methods which allow covariant overrides.
@@ -631,9 +634,9 @@ impl ErrorKind {
         match self {
             ErrorKind::AssertTypeUnspellableSubtype => Some(ErrorKind::AssertType),
             ErrorKind::DirectAbstractBaseInstantiation => Some(ErrorKind::BadInstantiation),
-            ErrorKind::BadOverrideMutableAttribute | ErrorKind::BadOverrideParamName => {
-                Some(ErrorKind::BadOverride)
-            }
+            ErrorKind::BadOverrideExplicit
+            | ErrorKind::BadOverrideMutableAttribute
+            | ErrorKind::BadOverrideParamName => Some(ErrorKind::BadOverride),
             ErrorKind::ImplicitAnyAttribute
             | ErrorKind::ImplicitAnyEmptyContainer
             | ErrorKind::ImplicitAnyLambda
