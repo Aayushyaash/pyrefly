@@ -311,7 +311,6 @@ pub struct RuleOverrides {
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     pub report_unbound_variable: Option<Severity>,
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
-    #[expect(unused)]
     pub report_unhashable: Option<Severity>,
 
     // Coroutine rules
@@ -501,6 +500,7 @@ impl RuleOverrides {
         add(self.report_unnecessary_cast, ErrorKind::RedundantCast);
         add(self.report_undefined_variable, ErrorKind::UnknownName);
         add(self.report_unbound_variable, ErrorKind::UnboundName);
+        add(self.report_unhashable, ErrorKind::Unhashable);
         add(self.report_unused_coroutine, ErrorKind::UnusedCoroutine);
 
         // Call rules
@@ -960,6 +960,15 @@ include = ["basedpyright.py"]
             let config = serde_json::from_str::<PyrightConfig>(&raw)?.convert();
             assert!(config.root.errors.is_none());
         }
+        Ok(())
+    }
+
+    #[test]
+    fn test_unhashable_mapping() -> anyhow::Result<()> {
+        let pyr = serde_json::from_str::<PyrightConfig>(r#"{"reportUnhashable": "error"}"#)?;
+        let config = pyr.convert();
+        let errors = config.root.errors.expect("expected a diagnostic override");
+        assert_eq!(errors.severity(ErrorKind::Unhashable), Severity::Error);
         Ok(())
     }
 }
