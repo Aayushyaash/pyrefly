@@ -1333,6 +1333,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                             Type::Any(AnyStyle::Error | AnyStyle::MissingImport) => self.error_unknown_from_error(
                                 callable_errors,
                                 lambda.body.range(),
+                                lambda.body.range(),
                                 "The return type of this lambda",
                             ),
                             Type::Any(AnyStyle::Explicit) => self.error_explicit_any_use(
@@ -3118,6 +3119,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             Type::Any(AnyStyle::Error | AnyStyle::MissingImport) if from_error_here => self
                 .error_unknown_from_error(
                     errors,
+                    x.attr.range,
                     x.attr.range,
                     format!("The type of attribute `{}`", x.attr.id),
                 ),

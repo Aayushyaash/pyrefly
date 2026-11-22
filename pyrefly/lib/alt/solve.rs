@@ -2570,6 +2570,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 }
                 AnyStyle::Error | AnyStyle::MissingImport => self.error_unknown_from_error(
                     errors,
+                    target_range,
                     self.target_value_range(binding).unwrap_or(target_range),
                     format!("The type of `{name}`"),
                 ),
@@ -2584,9 +2585,9 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
     }
 
     /// The range of the expression that a loop, `with`, comprehension, unpacking or match capture
-    /// target takes its value from, if the binding records one. An `unknown-from-error` report on
-    /// the target is anchored there rather than at the target, so that a root error in that
-    /// expression lies within the report's range and explains it.
+    /// target takes its value from, if the binding records one. This is the causal span of
+    /// an `unknown-from-error` report, so a root error in the expression explains the target's
+    /// inferred type even when the diagnostic highlights the target.
     pub fn target_value_range(&self, binding: &Binding) -> Option<TextRange> {
         match binding {
             Binding::IterableValueLoop(_, e, _, _, _)
@@ -4756,6 +4757,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
     fn binding_to_type_name_assign(
         &self,
         name: &Name,
+        name_range: TextRange,
         annot_key: Option<(AnnotationStyle, Idx<KeyAnnotation>)>,
         receiver_idx: Option<Idx<Key>>,
         expr: &Expr,
@@ -4796,14 +4798,13 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 Type::Any(AnyStyle::Error | AnyStyle::MissingImport) => self
                     .error_unknown_from_error(
                         errors,
+                        name_range,
                         expr.range(),
                         format!("The type of `{name}`"),
                     ),
-                Type::Any(AnyStyle::Explicit) => self.error_explicit_any_use(
-                    errors,
-                    expr.range(),
-                    format!("The type of `{name}`"),
-                ),
+                Type::Any(AnyStyle::Explicit) => {
+                    self.error_explicit_any_use(errors, name_range, format!("The type of `{name}`"))
+                }
                 _ if ty.contains_implicit_any() => {
                     self.error(
                         errors,
@@ -5123,9 +5124,13 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                             .to_owned(),
                     );
                 }
-                Type::Any(AnyStyle::Error | AnyStyle::MissingImport) => {
-                    self.error_unknown_from_error(errors, range, "The type of the returned value")
-                }
+                Type::Any(AnyStyle::Error | AnyStyle::MissingImport) => self
+                    .error_unknown_from_error(
+                        errors,
+                        range,
+                        range,
+                        "The type of the returned value",
+                    ),
                 Type::Any(AnyStyle::Explicit) => {
                     self.error_explicit_any_use(errors, range, "The type of the returned value")
                 }
@@ -7513,6 +7518,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             }
             Binding::NameAssign(x) => self.binding_to_type_name_assign(
                 &x.name,
+                x.name_range,
                 x.annotation,
                 x.receiver_idx,
                 &x.expr,

@@ -2416,6 +2416,8 @@ pub struct AttrsSpecifier {
 #[derive(Clone, Debug)]
 pub struct NameAssign {
     pub name: Name,
+    /// The assignment target, which can be on a different line from the value.
+    pub name_range: TextRange,
     pub annotation: Option<(AnnotationStyle, Idx<KeyAnnotation>)>,
     pub expr: Box<Expr>,
     pub legacy_tparams: Option<Box<[Idx<KeyLegacyTypeParam>]>>,

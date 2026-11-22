@@ -2284,12 +2284,15 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                                 "This expression is implicitly inferred to be `Any`. Please provide an explicit type annotation.".to_owned(),
                             );
                         }
-                        Type::Any(AnyStyle::Error | AnyStyle::MissingImport) => self
-                            .error_unknown_from_error(
+                        Type::Any(AnyStyle::Error | AnyStyle::MissingImport) => {
+                            let value_range = self.target_value_range(binding).unwrap_or(range);
+                            self.error_unknown_from_error(
                                 errors,
-                                self.target_value_range(binding).unwrap_or(range),
+                                value_range,
+                                value_range,
                                 "The type of this attribute",
-                            ),
+                            );
+                        }
                         Type::Any(AnyStyle::Explicit) => {
                             self.error_explicit_any_use(errors, range, "The type of this attribute")
                         }
@@ -2866,7 +2869,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 );
             }
             Type::Any(AnyStyle::Error | AnyStyle::MissingImport) => {
-                self.error_unknown_from_error(errors, range, "The type of this attribute")
+                self.error_unknown_from_error(errors, range, range, "The type of this attribute")
             }
             Type::Any(AnyStyle::Explicit) => {
                 self.error_explicit_any_use(errors, range, "The type of this attribute")

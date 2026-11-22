@@ -1034,26 +1034,11 @@ def mk(cb, obj) -> None:
 );
 
 // https://github.com/pyrefly-org/pyrefly/issues/5710
-// Known bug: assignment diagnostics highlight the value rather than the variable.
 #[test]
 fn test_any_variable_diagnostic_ranges() {
-    for (annotation, description, expected_ranges) in [
-        (
-            "Any",
-            "an explicit `Any`",
-            vec![
-                "3:7-12", "4:7-12", "6:5-9", "8:1-6", "8:9-15", "8:17-22", "9:15-20", "11:21-26",
-                "12:16-17", "12:19-20", "14:5-10",
-            ],
-        ),
-        (
-            "Unknown",
-            "unknown because it comes from an error",
-            vec![
-                "3:7-12", "4:7-12", "6:13-18", "8:26-31", "8:26-31", "8:26-31", "9:6-11",
-                "11:30-35", "12:24-29", "12:24-29", "14:5-10",
-            ],
-        ),
+    for (annotation, description) in [
+        ("Any", "an explicit `Any`"),
+        ("Unknown", "unknown because it comes from an error"),
     ] {
         let mut env = TestEnv::new()
             .enable_explicit_any_use_error()
@@ -1085,18 +1070,18 @@ multiline = (
             .get_errors([&handle("main")])
             .collect_errors()
             .ordinary;
-        let names = [
-            "foo",
-            "foo",
-            "item",
-            "first",
-            "second",
-            "third",
-            "bound",
-            "entry",
-            "a",
-            "b",
-            "multiline",
+        let expected = [
+            ("foo", "3:1-4"),
+            ("foo", "4:1-4"),
+            ("item", "6:5-9"),
+            ("first", "8:1-6"),
+            ("second", "8:9-15"),
+            ("third", "8:17-22"),
+            ("bound", "9:15-20"),
+            ("entry", "11:21-26"),
+            ("a", "12:16-17"),
+            ("b", "12:19-20"),
+            ("multiline", "13:1-10"),
         ];
         assert_eq!(
             errors
@@ -1106,12 +1091,11 @@ multiline = (
                     error.display_range().to_string()
                 ))
                 .collect::<Vec<_>>(),
-            names
+            expected
                 .iter()
-                .zip(expected_ranges)
                 .map(|(name, range)| (
                     format!("The type of `{name}` is {description}"),
-                    range.to_owned()
+                    (*range).to_owned()
                 ))
                 .collect::<Vec<_>>(),
         );

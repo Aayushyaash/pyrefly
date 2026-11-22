@@ -1064,7 +1064,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 );
             }
             Type::Any(AnyStyle::Error | AnyStyle::MissingImport) => {
-                self.error_unknown_from_error(arg_errors, range, "The type of this argument")
+                self.error_unknown_from_error(arg_errors, range, range, "The type of this argument")
             }
             Type::Any(AnyStyle::Explicit) => {
                 self.error_explicit_any_use(arg_errors, range, "The type of this argument")

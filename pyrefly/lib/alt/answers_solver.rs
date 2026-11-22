@@ -4100,10 +4100,12 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
 
     /// Reports a value whose type is an error `Any`, which comes from an error such as an
     /// unresolved import or name. `subject` describes the value, e.g. "The type of `x`".
+    /// `range` highlights the value or target; `explanation_range` contains its possible causes.
     pub fn error_unknown_from_error(
         &self,
         errors: &ErrorCollector,
         range: TextRange,
+        explanation_range: TextRange,
         subject: impl Display,
     ) {
         errors
@@ -4112,7 +4114,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 ErrorKind::UnknownFromError,
                 format!("{subject} is unknown because it comes from an error"),
             )
-            .with_explanation_range(range)
+            .with_explanation_range(explanation_range)
             .emit();
     }
 
