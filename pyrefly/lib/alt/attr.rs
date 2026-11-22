@@ -26,6 +26,7 @@ use pyrefly_util::suggest::Candidate;
 use pyrefly_util::suggest::best_suggestion;
 use ruff_python_ast::helpers::is_dunder;
 use ruff_python_ast::name::Name;
+use ruff_text_size::Ranged;
 use ruff_text_size::TextRange;
 use starlark_map::small_map::SmallMap;
 use starlark_map::small_set::SmallSet;
@@ -39,6 +40,7 @@ use crate::alt::class::class_field::ClassAttribute;
 use crate::alt::class::class_field::DescriptorBase;
 use crate::alt::class::class_field::IsMethod;
 use crate::alt::expr::TypeOrExpr;
+use crate::alt::unwrap::HintRef;
 use crate::binding::binding::ExprOrBinding;
 use crate::config::error_kind::ErrorKind;
 use crate::error::collector::ErrorCollector;
@@ -50,7 +52,9 @@ use crate::error::style::ErrorStyle;
 use crate::solver::solver::SubsetError;
 use crate::state::loader::FindError;
 use crate::state::loader::FindingOrError;
+use crate::types::callable::Param;
 use crate::types::callable::Params;
+use crate::types::callable::PrefixParam;
 use crate::types::class::Class;
 use crate::types::class::ClassType;
 use crate::types::env::TypeEnv;
@@ -307,6 +311,8 @@ pub enum NoAccessReason {
 pub enum AttrSetter {
     /// Check the value against a declared type and apply the specified narrowing rule.
     Declared { ty: Type, narrow: AttrNarrowing },
+    /// A method replaced on its class; `partialmethod` supplies a descriptor rather than a callable.
+    MethodOnClass { ty: Type },
     /// Call `__setattr__` with the value.
     SetAttr(Type),
     /// Call a property setter with the value.
@@ -1200,6 +1206,57 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 };
                 let target_type = narrow_ty.clone().unwrap_or(ty);
                 Some((narrow_ty, Some(target_type)))
+            }
+            AttrSetter::MethodOnClass { ty } => {
+                let got_ty = match got {
+                    TypeOrExpr::Expr(got) => {
+                        self.expr_infer_with_hint(got, Some(HintRef::soft(&ty)), errors)
+                    }
+                    TypeOrExpr::Type(got, _) => got.clone(),
+                };
+                let (narrowed, want) = if let Type::ClassType(cls) = &got_ty
+                    && let Some(unbound) = cls.partialmethod_signature()
+                {
+                    let mut want = ty.clone();
+                    // Descriptor class access requires a positional receiver.
+                    want.transform_toplevel_callable_signatures(|sig, _| match &mut sig.params {
+                        Params::List(params) | Params::Partial(params) => {
+                            if let Some(first) = params.items_mut().first_mut()
+                                && let Param::Pos(name, ty, required) = first
+                            {
+                                *first = Param::PosOnly(
+                                    Some(name.clone()),
+                                    ty.clone(),
+                                    required.clone(),
+                                );
+                            }
+                        }
+                        Params::ParamSpec(prefix, _) => {
+                            if let Some(first) = prefix.first_mut()
+                                && let PrefixParam::Pos(name, ty, required) = first
+                            {
+                                *first = PrefixParam::PosOnly(
+                                    Some(name.clone()),
+                                    ty.clone(),
+                                    required.clone(),
+                                );
+                            }
+                        }
+                        Params::Ellipsis | Params::Materialization => {}
+                    });
+                    (unbound.clone(), want)
+                } else {
+                    self.error_with_context(
+                        errors,
+                        range,
+                        ErrorKind::MethodAssign,
+                        format!("Cannot assign to method `{attr_name}`"),
+                        context,
+                    );
+                    (got_ty, ty)
+                };
+                self.check_type(&narrowed, &want, got.range(), errors, &type_check_context);
+                Some((Some(narrowed.clone()), Some(narrowed)))
             }
             AttrSetter::SetAttr(setattr_ty) => {
                 self.call_setattr(

@@ -6202,6 +6202,18 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 is_instance_var,
                 write_type: set_type,
             } => {
+                if is_method == IsMethod::Yes
+                    && instance_class.is_none()
+                    && class_base.is_some()
+                    && attr_ty.toplevel_func_metadata().is_some_and(|metadata| {
+                        !metadata.flags.is_staticmethod && !metadata.flags.is_classmethod
+                    })
+                    && attr_ty
+                        .toplevel_callable_signatures()
+                        .all(|(sig, _)| sig.get_first_param().is_some())
+                {
+                    return Some(AttrSetter::MethodOnClass { ty: attr_ty });
+                }
                 if is_method == IsMethod::Yes {
                     self.error_with_context(
                         errors,

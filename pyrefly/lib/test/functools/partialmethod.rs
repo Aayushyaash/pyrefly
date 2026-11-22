@@ -134,7 +134,6 @@ C().specialized(1, "positional")  # E: Expected 1 positional argument, got 2
 
 // https://github.com/pyrefly-org/pyrefly/issues/5138
 functools_testcase!(
-    bug = "partialmethod is rejected when replacing a method",
     test_partialmethod_class_assignment,
     r#"
 from functools import partialmethod
@@ -142,7 +141,7 @@ from typing import assert_type
 def pprint(arg: object, /, *, options: dict) -> str:
     return "dummy"
 class Bar: ...
-Bar.__repr__ = partialmethod(pprint, options={})  # E: `partialmethod[str]` is not assignable to attribute `__repr__` with type `(self: Bar) -> str`
+Bar.__repr__ = partialmethod(pprint, options={})
 assert_type(repr(Bar()), str)
 "#,
 );
