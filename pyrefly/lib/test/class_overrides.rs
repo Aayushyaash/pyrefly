@@ -2710,7 +2710,7 @@ class Empty: ...
 
 class InheritedObject(Empty):
     @override
-    def __init_subclass__(cls, x: int) -> None: ...  # E: Class member `InheritedObject.__init_subclass__` overrides parent class `Empty` in an inconsistent manner
+    def __init_subclass__(cls, x: int) -> None: ...  # E: Class member `InheritedObject.__init_subclass__` overrides parent class `Empty` in an inconsistent manner; compatibility is checked because this member is decorated with `@override`
 
 class Compatible:
     @override
@@ -2776,12 +2776,12 @@ class Parent:
 
 class Child(Parent):
     @override
-    def __init__(self, x: str) -> None: ...  # pyrefly: ignore[bad-override]
+    def __init__(self, x: str) -> None: ...  # pyrefly: ignore[bad-override-explicit]
     @override
-    def __new__(cls, y: int) -> Self:  # pyrefly: ignore[bad-override]
+    def __new__(cls, y: int) -> Self:  # pyrefly: ignore[bad-override-explicit]
         raise NotImplementedError
     @override
-    def __init_subclass__(cls, x: str = "") -> None: ...  # pyrefly: ignore[bad-override]
+    def __init_subclass__(cls, x: str = "") -> None: ...  # pyrefly: ignore[bad-override-explicit]
 
     @property
     @override

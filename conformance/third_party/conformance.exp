@@ -3416,10 +3416,10 @@
     {
       "code": -2,
       "column": 9,
-      "concise_description": "Class member `ChildC2.__init__` overrides parent class `ParentC` in an inconsistent manner",
-      "description": "Class member `ChildC2.__init__` overrides parent class `ParentC` in an inconsistent manner\n  `ChildC2.__init__` has type `(x: str) -> None`, which is not assignable to `(x: int) -> None`, the type of `ParentC.__init__`\n  Signature mismatch:\n  expected: def __init__(self: ChildC2, x: int) -> None: ...\n                                           ^^^ parameter\n  found:    def __init__(self: ChildC2, x: str) -> None: ...\n                                           ^^^ parameter",
+      "concise_description": "Class member `ChildC2.__init__` overrides parent class `ParentC` in an inconsistent manner; compatibility is checked because this member is decorated with `@override`",
+      "description": "Class member `ChildC2.__init__` overrides parent class `ParentC` in an inconsistent manner; compatibility is checked because this member is decorated with `@override`\n  `ChildC2.__init__` has type `(x: str) -> None`, which is not assignable to `(x: int) -> None`, the type of `ParentC.__init__`\n  Signature mismatch:\n  expected: def __init__(self: ChildC2, x: int) -> None: ...\n                                           ^^^ parameter\n  found:    def __init__(self: ChildC2, x: str) -> None: ...\n                                           ^^^ parameter",
       "line": 135,
-      "name": "bad-override",
+      "name": "bad-override-explicit",
       "severity": "error",
       "stop_column": 17,
       "stop_line": 135
@@ -3427,10 +3427,10 @@
     {
       "code": -2,
       "column": 9,
-      "concise_description": "Class member `ChildC2.__new__` overrides parent class `ParentC` in an inconsistent manner",
-      "description": "Class member `ChildC2.__new__` overrides parent class `ParentC` in an inconsistent manner\n  `ChildC2.__new__` has type `[Self@ChildC2: ChildC2](cls: type[Self@ChildC2], x: str) -> ChildC2`, which is not assignable to `(cls: type[ChildC2], x: int) -> ParentC`, the type of `ParentC.__new__`\n  Signature mismatch:\n  expected: def __new__(cls: type[ChildC2], x: int) -> ParentC: ...\n                                               ^^^ parameter\n  found:    def __new__(cls: type[Self@ChildC2], x: str) -> ChildC2: ...\n                                                    ^^^ parameter",
+      "concise_description": "Class member `ChildC2.__new__` overrides parent class `ParentC` in an inconsistent manner; compatibility is checked because this member is decorated with `@override`",
+      "description": "Class member `ChildC2.__new__` overrides parent class `ParentC` in an inconsistent manner; compatibility is checked because this member is decorated with `@override`\n  `ChildC2.__new__` has type `[Self@ChildC2: ChildC2](cls: type[Self@ChildC2], x: str) -> ChildC2`, which is not assignable to `(cls: type[ChildC2], x: int) -> ParentC`, the type of `ParentC.__new__`\n  Signature mismatch:\n  expected: def __new__(cls: type[ChildC2], x: int) -> ParentC: ...\n                                               ^^^ parameter\n  found:    def __new__(cls: type[Self@ChildC2], x: str) -> ChildC2: ...\n                                                    ^^^ parameter",
       "line": 138,
-      "name": "bad-override",
+      "name": "bad-override-explicit",
       "severity": "error",
       "stop_column": 16,
       "stop_line": 138

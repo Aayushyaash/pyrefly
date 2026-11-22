@@ -4629,6 +4629,8 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             return;
         }
 
+        let check_only_because_of_override = is_explicit_override
+            && !self.should_check_field_for_override_consistency(field_name, metadata, false);
         let mut got_instance_attribute = None;
         let mut got_class_attribute = None;
         let mut parent_attr_found = false;
@@ -5128,17 +5130,22 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 diff_lines: extra_lines,
             }) = error
             {
-                let mut builder = errors
-                    .error_builder(
-                        range,
-                        kind,
-                        format!(
-                            "Class member `{}.{}` overrides parent class `{}` in an inconsistent manner",
-                            cls.name(self),
-                            field_name,
-                            parent.name(self)
-                        ),
+                let (kind, suffix) = if check_only_because_of_override {
+                    (
+                        ErrorKind::BadOverrideExplicit,
+                        "; compatibility is checked because this member is decorated with `@override`",
                     )
+                } else {
+                    (kind, "")
+                };
+                let summary = format!(
+                    "Class member `{}.{}` overrides parent class `{}` in an inconsistent manner{suffix}",
+                    cls.name(self),
+                    field_name,
+                    parent.name(self)
+                );
+                let mut builder = errors
+                    .error_builder(range, kind, summary)
                     .with_detail(message);
                 for line in extra_lines {
                     builder = builder.with_detail(line);
