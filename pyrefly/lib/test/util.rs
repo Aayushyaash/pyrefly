@@ -276,6 +276,7 @@ pub struct TestEnv {
     implicit_abstract_class_error: bool,
     open_unpacking_error: bool,
     method_assign_error: bool,
+    bad_override_descriptor_error: bool,
     missing_override_decorator_error: bool,
     missing_super_call_error: bool,
     missing_source_error: bool,
@@ -368,6 +369,7 @@ impl TestEnv {
             implicit_abstract_class_error: false,
             open_unpacking_error: false,
             method_assign_error: false,
+            bad_override_descriptor_error: false,
             missing_override_decorator_error: false,
             missing_super_call_error: false,
             missing_source_error: false,
@@ -523,6 +525,11 @@ impl TestEnv {
 
     pub fn enable_implicitly_defined_attribute_error(mut self) -> Self {
         self.implicitly_defined_attribute_error = true;
+        self
+    }
+
+    pub fn enable_bad_override_descriptor_error(mut self) -> Self {
+        self.bad_override_descriptor_error = true;
         self
     }
 
@@ -1055,6 +1062,9 @@ impl TestEnv {
         }
         if self.method_assign_error {
             errors.set_error_severity(ErrorKind::MethodAssign, Severity::Error);
+        }
+        if self.bad_override_descriptor_error {
+            errors.set_error_severity(ErrorKind::BadOverrideDescriptor, Severity::Error);
         }
         if self.missing_override_decorator_error {
             errors.set_error_severity(ErrorKind::MissingOverrideDecorator, Severity::Error);

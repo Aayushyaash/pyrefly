@@ -5171,6 +5171,77 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     builder = builder.with_detail(line);
                 }
                 builder.emit();
+            } else if matches!(
+                got_attribute,
+                ClassAttribute::Descriptor(..) | ClassAttribute::DescriptorRead { .. }
+            ) || matches!(
+                want_attribute,
+                ClassAttribute::Descriptor(..) | ClassAttribute::DescriptorRead { .. }
+            ) {
+                // Instance compatibility does not imply compatibility of `__get__(None, owner)`.
+                // Keep this read-only check separate from instance getter/setter contracts.
+                let parent_instance = Instance::of_protocol(parent, self.instantiate(cls));
+                let specialized_parent_field =
+                    want_class_field.instantiate_for(self.heap, &parent_instance, self);
+                let want_class_attribute = relax_parent_attribute(self.as_class_attribute(
+                    field_name,
+                    &specialized_parent_field,
+                    &parent_instance.to_class_base(),
+                ));
+                let got_class_attribute = got_class_attribute.get_or_insert_with(|| {
+                    self.as_class_attribute(
+                        field_name,
+                        class_field,
+                        &ClassBase::ClassType(self.as_class_type_unchecked(cls)),
+                    )
+                });
+                let access_errors = self.error_collector();
+                let got = self.resolve_get_class_attr(
+                    field_name,
+                    got_class_attribute.clone(),
+                    TextRange::default(),
+                    &access_errors,
+                    None,
+                );
+                let want = self.resolve_get_class_attr(
+                    field_name,
+                    want_class_attribute,
+                    TextRange::default(),
+                    &access_errors,
+                    None,
+                );
+                // Recovery types from invalid getters are not evidence of an override mismatch.
+                if let (Ok(got), Ok(want)) = (got, want)
+                    && !access_errors.has_hard()
+                    && let Err(subset_error) = self.is_subset_eq_with_reason(&got, &want)
+                {
+                    let message = AttrSubsetError::Covariant {
+                        got,
+                        want,
+                        got_is_property: false,
+                        want_is_property: false,
+                        subset_error,
+                    }
+                    .to_error_msg(
+                        self,
+                        cls.name(self),
+                        parent.name(self),
+                        field_name,
+                    );
+                    errors
+                        .error_builder(
+                            range,
+                            ErrorKind::BadOverrideDescriptor,
+                            format!(
+                                "Class access to `{}.{}` is incompatible with parent class `{}`",
+                                cls.name(self),
+                                field_name,
+                                parent.name(self),
+                            ),
+                        )
+                        .with_detail(message)
+                        .emit();
+                }
             }
         }
         if is_explicit_override && !parent_attr_found && !parent_has_any {

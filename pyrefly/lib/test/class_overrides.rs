@@ -3239,8 +3239,8 @@ class ConcreteChild(Base):
 
 // Regression coverage for https://github.com/pyrefly-org/pyrefly/issues/5299.
 testcase!(
-    bug = "Descriptor overrides do not check class access",
     test_override_descriptor_class_access,
+    TestEnv::new().enable_bad_override_descriptor_error(),
     r#"
 from typing import Callable, Concatenate, assert_type, overload, override
 
@@ -3266,7 +3266,7 @@ class Base:
 
 class Child(Base):
     @override
-    def method(self) -> int:
+    def method(self) -> int:  # E: Class access to `Child.method` is incompatible with parent class `Base`
         return 1
 
 assert_type(Base.method, str)
@@ -3279,13 +3279,14 @@ accepts_base(Child)
 
 class ChildIgnored(Base):
     @override
-    def method(self) -> int:  # pyrefly: ignore[bad-override]
+    def method(self) -> int:  # pyrefly: ignore[bad-override-descriptor]
         return 1
 "#,
 );
 
 testcase!(
     test_override_descriptor_class_access_compatible,
+    TestEnv::new().enable_bad_override_descriptor_error(),
     r#"
 from typing import Callable, Concatenate, assert_type, overload, override
 
@@ -3330,7 +3331,7 @@ class KeywordBase:
 class KeywordChild(KeywordBase):
     @override
     @Descriptor
-    def method(self, x: int) -> int:
+    def method(self, x: int) -> int:  # E: Class access to `KeywordChild.method` is incompatible with parent class `KeywordBase`
         return x
 
 class PlaceholderBase:
@@ -3346,8 +3347,8 @@ class PlaceholderChild(PlaceholderBase):
 );
 
 testcase!(
-    bug = "Descriptor overrides do not check class access",
     test_override_descriptor_class_access_between_descriptors,
+    TestEnv::new().enable_bad_override_descriptor_error(),
     r#"
 from typing import overload
 
@@ -3369,12 +3370,13 @@ class Base:
     value = Descriptor()
 
 class Child(Base):
-    value = OtherDescriptor()
+    value = OtherDescriptor()  # E: Class access to `Child.value` is incompatible with parent class `Base`
 "#,
 );
 
 testcase!(
     test_override_descriptor_class_access_generic_parent,
+    TestEnv::new().enable_bad_override_descriptor_error(),
     r#"
 from typing import assert_type, overload
 
@@ -3395,7 +3397,7 @@ class Grandchild(Child):
     value = Descriptor[str]()
 
 class IncompatibleChild(Base[str]):
-    value = Descriptor[bytes]()
+    value = Descriptor[bytes]()  # E: Class access to `IncompatibleChild.value` is incompatible with parent class `Base`
 
 assert_type(Child.value, str)
 assert_type(Grandchild.value, str)
@@ -3430,6 +3432,7 @@ class Derived(Base):
 
 testcase!(
     test_override_descriptor_method_incompatible,
+    TestEnv::new().enable_bad_override_descriptor_error(),
     r#"
 from typing import Callable, Self, overload
 
@@ -3450,7 +3453,8 @@ class Base:
 
 class Derived(Base):
     @decorate
-    def method(self) -> str: ...  # E: Class member `Derived.method` overrides parent class `Base` in an inconsistent manner
+    # E: Class member `Derived.method` overrides parent class `Base` in an inconsistent manner
+    def method(self) -> str: ...  # pyrefly: ignore[bad-override-descriptor]
 "#,
 );
 
@@ -3513,6 +3517,7 @@ class ChildNarrowSetter(Base):
 
 testcase!(
     test_override_descriptor_property_interop,
+    TestEnv::new().enable_bad_override_descriptor_error(),
     r#"
 class ReadWriteDescriptor:
     def __get__(self, instance: object, owner: type | None = None) -> int: ...
@@ -3528,7 +3533,7 @@ class BaseWithProp:
     def p(self, val: int) -> None: ...
 
 class ChildDesc(BaseWithProp):
-    p: ReadWriteDescriptor = ReadWriteDescriptor()
+    p: ReadWriteDescriptor = ReadWriteDescriptor()  # E: Class access to `ChildDesc.p` is incompatible with parent class `BaseWithProp`
 
 class ChildDescReadOnly(BaseWithProp):
     p: ReadOnlyDescriptor = ReadOnlyDescriptor()  # E: `ChildDescReadOnly.p` is read-only, but `BaseWithProp.p` is read-write
@@ -3538,7 +3543,7 @@ class BaseWithDesc:
 
 class ChildProp(BaseWithDesc):
     @property
-    def x(self) -> int: ...
+    def x(self) -> int: ...  # E: Class access to `ChildProp.x` is incompatible with parent class `BaseWithDesc`
     @x.setter
     def x(self, val: int) -> None: ...
 
