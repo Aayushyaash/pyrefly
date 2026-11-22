@@ -4629,7 +4629,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             return;
         }
 
-        let check_only_because_of_override = is_explicit_override
+        let field_check_requires_override = is_explicit_override
             && !self.should_check_field_for_override_consistency(field_name, metadata, false);
         let mut got_instance_attribute = None;
         let mut got_class_attribute = None;
@@ -4699,12 +4699,13 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             // different: its members are the contract it exists to state, so an
             // incompatible `__call__` there is the unsound case, and the parent
             // signature is written to be implemented rather than inherited.
-            if field_name == &dunder::CALL
-                && !is_explicit_override
-                && !want_field.defining_class.is_protocol(self)
-            {
+            let call_check_requires_override =
+                field_name == &dunder::CALL && !want_field.defining_class.is_protocol(self);
+            if call_check_requires_override && !is_explicit_override {
                 continue;
             }
+            let check_only_because_of_override =
+                field_check_requires_override || call_check_requires_override;
             parent_attr_found = true;
             if want_field.defining_class.is(KnownClass::Object) {
                 parent_attr_is_from_object = true;

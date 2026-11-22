@@ -1425,7 +1425,7 @@ class A:
 
 class B(A):
     @override
-    def __call__(self, x: str) -> None: ...  # E: Class member `B.__call__` overrides parent class `A` in an inconsistent manner
+    def __call__(self, x: str) -> None: ...  # E: Class member `B.__call__` overrides parent class `A` in an inconsistent manner; compatibility is checked because this member is decorated with `@override`
     "#,
 );
 
@@ -1445,7 +1445,7 @@ class Implicit(Concrete, Contract):
 
 class Explicit(Concrete, Contract):
     @override
-    def __call__(self, x: str) -> None: ...  # E: Class member `Explicit.__call__` overrides parent class `Concrete` in an inconsistent manner  # E: Class member `Explicit.__call__` overrides parent class `Contract` in an inconsistent manner
+    def __call__(self, x: str) -> None: ...  # pyrefly: ignore[bad-override-explicit]  # E: Class member `Explicit.__call__` overrides parent class `Contract` in an inconsistent manner
 "#,
 );
 

@@ -404,6 +404,7 @@ Note that bad overrides caused by inconsistent parameter names are separately re
 
 Pyrefly normally allows incompatible overrides of `__init__`, `__new__`, `__init_subclass__`, and `__class__`.
 Adding `@override` explicitly requests compatibility checking for these members, including when the inherited definition comes from `object`.
+The same applies to `__call__` overrides of members inherited from non-Protocol classes; overrides of Protocol members are checked even without the decorator and use the ordinary override error codes.
 This error is enabled by default and covers both incompatible types and parameter names.
 
 ```python
