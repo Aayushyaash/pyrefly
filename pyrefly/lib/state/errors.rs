@@ -289,6 +289,7 @@ pub struct LoadErrors {
     pub(crate) parse_errors: Option<ModuleDiagnostics>,
     pub(crate) binding_errors: Option<ModuleDiagnostics>,
     pub(crate) solve_errors: Option<ModuleDiagnostics>,
+    pub(crate) import_cycle_errors: Option<ModuleDiagnostics>,
     pub(crate) module_ranges: Option<Arc<ModuleRanges>>,
     pub(crate) config: ArcId<ConfigFile>,
 }
@@ -454,6 +455,7 @@ impl Errors {
             parse_errors,
             binding_errors,
             solve_errors,
+            import_cycle_errors,
             module_ranges,
             config,
         }: &LoadErrors,
@@ -474,6 +476,7 @@ impl Errors {
             .into_iter()
             .chain(binding_errors)
             .chain(solve_errors)
+            .chain(import_cycle_errors)
             .collect();
         let mut errors = BorrowedCollectedErrors::default();
         ErrorCollector::collect_snapshots_into(

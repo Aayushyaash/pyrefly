@@ -133,6 +133,7 @@ use crate::solver::solver::VarRecurser;
 use crate::state::epoch::Epoch;
 use crate::state::errors::Errors;
 use crate::state::errors::LoadErrors;
+use crate::state::import_cycles::ImportCycles;
 use crate::state::load::FileContents;
 use crate::state::load::Load;
 use crate::state::loader::FindingOrError;
@@ -811,6 +812,8 @@ struct StateData {
     /// contents of a file on disk. Edits to open files and first loads of
     /// modules do not increase it.
     generation: u64,
+    /// The import-cycle analysis of the last committed transaction.
+    import_cycles: ImportCycles,
 }
 
 impl StateData {
@@ -822,6 +825,7 @@ impl StateData {
             memory: Default::default(),
             now: Epoch::zero(),
             generation: 0,
+            import_cycles: ImportCycles::default(),
         }
     }
 }
@@ -931,6 +935,8 @@ pub(crate) struct TransactionData<'a> {
     /// For `--report-scip` only: evict each module's answers once the solutions hook has seen
     /// it, whatever its require level. See `set_evict_answers_after_scip_hook`.
     evict_answers_after_scip_hook: bool,
+    /// The import-cycle analysis as of the last completed run.
+    import_cycles: ImportCycles,
 }
 
 impl<'a> TransactionData<'a> {
@@ -1226,6 +1232,7 @@ impl<'a> Transaction<'a> {
                             parse_errors: x.parse_errors(),
                             binding_errors: x.binding_errors(),
                             solve_errors: x.solve_errors(),
+                            import_cycle_errors: self.data.import_cycles.errors(handle),
                             module_ranges: x.module_ranges(),
                             config: config.dupe(),
                         })
@@ -4236,6 +4243,7 @@ impl State {
     ) -> Transaction<'a> {
         let now = readable.now;
         let stdlib = readable.stdlib.clone();
+        let import_cycles = readable.import_cycles.clone();
         Transaction {
             readable,
             stats: Mutex::new(TelemetryTransactionStats {
@@ -4264,6 +4272,7 @@ impl State {
                 cinderx_reporter: None,
                 solutions_hook: None,
                 evict_answers_after_scip_hook: false,
+                import_cycles,
             },
         }
     }
@@ -4370,6 +4379,7 @@ impl State {
                             cinderx_reporter: _,
                             solutions_hook: _,
                             evict_answers_after_scip_hook: _,
+                            import_cycles,
                         },
                 },
             committing_transaction_guard,
@@ -4428,6 +4438,7 @@ impl State {
             base, state.now
         );
         let displaced_stdlib = mem::replace(&mut state.stdlib, stdlib);
+        let displaced_import_cycles = mem::replace(&mut state.import_cycles, import_cycles);
         state.now = now;
         if inputs_changed.into_inner() {
             state.generation += 1;
@@ -4471,6 +4482,7 @@ impl State {
         // committed state, so readers do not wait on it. In the downgrade path,
         // the returned transaction still holds a read lock until this finishes.
         drop(displaced_stdlib);
+        drop(displaced_import_cycles);
         drop(displaced_modules);
         drop(displaced_loaders);
         drop(stale_loaders);
