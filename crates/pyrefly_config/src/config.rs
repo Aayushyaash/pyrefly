@@ -976,12 +976,38 @@ impl ConfigFile {
         excludes.append(Self::required_project_excludes().globs());
         excludes.append(
             &self
-                .site_package_path_excluding_editable()
-                .filter(|p| !self.search_path().any(|r| r.starts_with(p)))
+                .third_party_site_package_path()
                 .filter_map(|p| Glob::new(p.to_string_lossy().to_string()).ok())
                 .collect::<Vec<_>>(),
         );
         excludes
+    }
+
+    /// The site-package paths that hold installed packages rather than project code: every
+    /// site-package path except PEP 610 editable roots and paths that contain a search path.
+    fn third_party_site_package_path(&self) -> impl Iterator<Item = &PathBuf> + Clone {
+        self.site_package_path_excluding_editable()
+            .filter(|p| !self.search_path().any(|r| r.starts_with(p)))
+    }
+
+    /// Whether `path` is in an installed package rather than in the project. A module checked in
+    /// another Python environment passes that environment's site-package path as `environment`,
+    /// which replaces the config's own, while the config's search path and editable roots still
+    /// hold project code.
+    pub fn is_third_party_path(&self, path: &Path, environment: Option<&[PathBuf]>) -> bool {
+        match environment {
+            None => self
+                .third_party_site_package_path()
+                .any(|site_package| path.starts_with(site_package)),
+            Some(site_package_path) => site_package_path.iter().any(|site_package| {
+                path.starts_with(site_package)
+                    && !self
+                        .python_environment
+                        .interpreter_editable_path
+                        .contains(site_package)
+                    && !self.search_path().any(|r| r.starts_with(site_package))
+            }),
+        }
     }
 
     /// The include globs the given scope selects.

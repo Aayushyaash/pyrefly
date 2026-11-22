@@ -1221,6 +1221,32 @@ impl<'a> Transaction<'a> {
         self.with_module_inner(handle, |x| x.get_load())
     }
 
+    /// The load of `handle`, loading the module if this transaction has not. A module that this
+    /// creates is required only for its exports, so loading it queues no further steps. Unlike
+    /// `get_module_ex`, this does not report such a module to the subscriber, since it is not
+    /// checked.
+    pub(crate) fn get_or_load(&self, handle: &Handle) -> Arc<Load> {
+        if let Some(load) = self.get_load(handle) {
+            return load;
+        }
+        let (module_data, _) = self.data.updated_modules.ensure(handle, || {
+            ArcId::new(match self.readable.modules.get(handle) {
+                Some(module_data) => module_data.clone_for_mutation(),
+                None => ModuleDataMut::new(
+                    handle.dupe(),
+                    Require::Exports,
+                    self.data.state.get_config(handle),
+                    self.data.now,
+                ),
+            })
+        });
+        self.demand(module_data, Step::Load);
+        module_data
+            .state
+            .get_load()
+            .expect("a module has a load once its load step is computed")
+    }
+
     pub fn get_errors<'b>(&self, handles: impl IntoIterator<Item = &'b Handle>) -> Errors {
         Errors::new(
             handles
@@ -2527,7 +2553,7 @@ impl<'a> Transaction<'a> {
     /// chain using a BFS worklist algorithm. Every module that transitively depends on
     /// any of the changed modules is marked dirty.
     ///
-    /// This is called from `run_internal` when a mutable dependency cycle is detected
+    /// This is called from `run_epochs` when a mutable dependency cycle is detected
     /// (i.e., the same module changes twice in one run), or when the run reaches its epoch
     /// limit, as a fallback to ensure all cyclic modules reach a stable state.
     fn invalidate_rdeps(&mut self, mut follow: Vec<ArcId<ModuleDataMut>>) {
@@ -2561,6 +2587,25 @@ impl<'a> Transaction<'a> {
     }
 
     fn run_internal(
+        &mut self,
+        handles: &[Handle],
+        require: Require,
+        custom_thread_pool: Option<&ThreadPool>,
+    ) -> Result<(), Cancelled> {
+        self.run_epochs(handles, require, custom_thread_pool)?;
+        // Import cycles depend only on import statements, which the epochs do not track as
+        // dependencies: an edit can add or remove a cycle without changing any export. So the
+        // analysis is repeated over the whole transaction after every completed run. A cancelled
+        // analysis keeps the previous one, like any other result of a cancelled run.
+        let import_cycles = self
+            .data
+            .import_cycles
+            .update(self, custom_thread_pool.unwrap_or(&self.data.state.threads))?;
+        self.data.import_cycles = import_cycles;
+        Ok(())
+    }
+
+    fn run_epochs(
         &mut self,
         handles: &[Handle],
         require: Require,
