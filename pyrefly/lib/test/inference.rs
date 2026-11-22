@@ -1033,6 +1033,91 @@ def mk(cb, obj) -> None:
 "#,
 );
 
+// https://github.com/pyrefly-org/pyrefly/issues/5710
+// Known bug: assignment diagnostics highlight the value rather than the variable.
+#[test]
+fn test_any_variable_diagnostic_ranges() {
+    for (annotation, description, expected_ranges) in [
+        (
+            "Any",
+            "an explicit `Any`",
+            vec![
+                "3:7-12", "4:7-12", "6:5-9", "8:1-6", "8:9-15", "8:17-22", "9:15-20", "11:21-26",
+                "12:16-17", "12:19-20", "14:5-10",
+            ],
+        ),
+        (
+            "Unknown",
+            "unknown because it comes from an error",
+            vec![
+                "3:7-12", "4:7-12", "6:13-18", "8:26-31", "8:26-31", "8:26-31", "9:6-11",
+                "11:30-35", "12:24-29", "12:24-29", "14:5-10",
+            ],
+        ),
+    ] {
+        let mut env = TestEnv::new()
+            .enable_explicit_any_use_error()
+            .enable_unknown_from_error_error();
+        env.add(
+            "main",
+            &format!(
+                r#"from typing import Any
+def fn(foo: int) -> {annotation}: ... # pyrefly: ignore[unknown-name]
+foo = fn(1)
+foo = fn(1)
+left = right = fn(1)
+for item in fn(1):
+    pass
+first, (second, third) = fn(1)
+with fn(1) as bound:
+    pass
+values = [entry for entry in fn(1)]
+pairs = [a for a, b in fn(1)]
+multiline = (
+    fn(1)
+)
+"#
+            ),
+        );
+        let (state, handle) = env.to_state();
+        let errors = state
+            .transaction()
+            .get_errors([&handle("main")])
+            .collect_errors()
+            .ordinary;
+        let names = [
+            "foo",
+            "foo",
+            "item",
+            "first",
+            "second",
+            "third",
+            "bound",
+            "entry",
+            "a",
+            "b",
+            "multiline",
+        ];
+        assert_eq!(
+            errors
+                .iter()
+                .map(|error| (
+                    error.msg_header().to_owned(),
+                    error.display_range().to_string()
+                ))
+                .collect::<Vec<_>>(),
+            names
+                .iter()
+                .zip(expected_ranges)
+                .map(|(name, range)| (
+                    format!("The type of `{name}` is {description}"),
+                    range.to_owned()
+                ))
+                .collect::<Vec<_>>(),
+        );
+    }
+}
+
 testcase!(
     test_unknown_from_error,
     TestEnv::new().enable_unknown_from_error_error(),

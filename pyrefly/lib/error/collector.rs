@@ -913,6 +913,36 @@ mod tests {
     }
 
     #[test]
+    fn test_unknown_from_error_explanation_order() {
+        let module = ModuleInfo::new(
+            ModuleName::from_str("main"),
+            ModulePath::filesystem(PathBuf::from("main.py")),
+            Arc::new(" ".repeat(40)),
+        );
+        let range = |start, end| TextRange::new(TextSize::new(start), TextSize::new(end));
+        let mut errors = [
+            (range(30, 40), ErrorKind::UnknownFromError, "first unknown"),
+            (range(10, 11), ErrorKind::UnknownName, "first cause"),
+            (range(5, 15), ErrorKind::UnknownFromError, "second unknown"),
+            (range(32, 35), ErrorKind::MissingAttribute, "second cause"),
+        ]
+        .map(|(range, kind, message)| {
+            Error::new(module.dupe(), range, message.to_owned(), Vec::new(), kind)
+        });
+        errors.sort_by_key(|error| (error.range().start(), error.range().end()));
+        let errors = errors.iter().collect::<Vec<_>>();
+        let explained = unknown_from_error_explained(&errors, |_| true);
+        assert_eq!(
+            errors
+                .iter()
+                .zip(explained)
+                .filter_map(|(error, explained)| (!explained).then_some(error.msg_header()))
+                .collect::<Vec<_>>(),
+            ["first cause", "second cause"],
+        );
+    }
+
+    #[test]
     fn test_contextual_diagnostic_agreement() {
         let module = ModuleInfo::new(
             ModuleName::from_str("main"),
