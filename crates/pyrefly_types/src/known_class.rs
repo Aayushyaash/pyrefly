@@ -119,6 +119,7 @@ known_classes! {
     FunctoolsLruCacheWrapper => ("functools", "_lru_cache_wrapper"),
     FunctoolsCachedProperty => ("functools", "cached_property"),
     FunctoolsPartial => ("functools", "partial"),
+    FunctoolsPartialMethod => ("functools", "partialmethod"),
     RePattern => ("re", "Pattern"),
     ReRegexFlag => ("re", "RegexFlag"),
     TypesDynamicClassAttribute => ("types", "DynamicClassAttribute"),
