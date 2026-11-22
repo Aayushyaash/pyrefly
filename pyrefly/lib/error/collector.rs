@@ -696,9 +696,12 @@ impl ErrorCollector {
                 }
                 continue;
             }
+            // Disabled diagnostics do not use suppressions.
             // A `misplaced-ignore` error is about a suppression comment, so the fix is to
             // move or remove the comment rather than to suppress the error.
-            let effect = if error.error_kind() == ErrorKind::MisplacedIgnore {
+            let effect = if severity == Severity::Ignore
+                || error.error_kind() == ErrorKind::MisplacedIgnore
+            {
                 SuppressionEffect::None
             } else {
                 Self::suppression_effect(error, fstring_ranges, ignore_all, error_config)

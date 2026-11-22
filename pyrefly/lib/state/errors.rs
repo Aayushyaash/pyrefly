@@ -1182,10 +1182,8 @@ def f() -> int:
     }
 
     // https://github.com/pyrefly-org/pyrefly/issues/5717
-    // BUG: A disabled diagnostic still makes its suppression count as used.
     #[test]
     fn test_unused_ignore_for_disabled_error() {
-        let expected_unused = 0;
         for (preset, severity) in [(Preset::All, Some(Severity::Ignore)), (Preset::Basic, None)] {
             for comment in [
                 "# pyrefly: ignore[bad-assignment]",
@@ -1204,18 +1202,18 @@ def f() -> int:
                 });
                 let collected = errors.collect_errors();
                 assert!(collected.ordinary.is_empty());
-                assert_eq!(collected.suppressed.len(), 1 - expected_unused);
-                assert_eq!(collected.disabled.len(), expected_unused);
+                assert!(collected.suppressed.is_empty());
+                assert_eq!(collected.disabled.len(), 1);
                 let unused = errors.collect_unused_ignore_errors(&collected);
-                assert_eq!(unused.len(), expected_unused, "{preset:?}: {comment}");
+                assert_eq!(unused.len(), 1, "{preset:?}: {comment}");
                 let (_, borrowed_unused) = errors.collect_error_refs_with_unused_ignores();
-                assert_eq!(borrowed_unused.len(), expected_unused);
+                assert_eq!(borrowed_unused.len(), 1);
                 assert_eq!(
                     errors
                         .collect_unused_ignore_errors_for_display(&collected)
                         .ordinary
                         .len(),
-                    expected_unused,
+                    1,
                 );
                 let serialized = unused
                     .iter()
@@ -1224,11 +1222,11 @@ def f() -> int:
                 assert_eq!(
                     remove_unused_ignores_from_serialized(serialized, UnusedIgnoreKind::All)
                         .unwrap(),
-                    expected_unused,
+                    1,
                 );
                 assert_eq!(
                     fs_anyhow::read_to_string(&get_path(&tdir)).unwrap(),
-                    contents
+                    "x: int = \"\"\n",
                 );
             }
         }
@@ -1260,10 +1258,8 @@ def f() -> int:
         }
     }
 
-    // BUG: Cleanup keeps a disabled code alongside an enabled, used code.
     #[test]
     fn test_partially_used_ignore_for_disabled_error() {
-        let expected_unused = 0;
         let contents = "\
 def f(x: str) -> str:
     return x
@@ -1278,20 +1274,20 @@ value: int = f(0)  # pyrefly: ignore[bad-assignment, bad-argument-type]
         });
         let collected = errors.collect_errors();
         let unused = errors.collect_unused_ignore_errors(&collected);
-        assert_eq!(unused.len(), expected_unused);
+        assert_eq!(unused.len(), 1);
         let (_, borrowed_unused) = errors.collect_error_refs_with_unused_ignores();
-        assert_eq!(borrowed_unused.len(), expected_unused);
+        assert_eq!(borrowed_unused.len(), 1);
         let serialized = unused
             .iter()
             .filter_map(SerializedError::from_error)
             .collect();
         assert_eq!(
             remove_unused_ignores_from_serialized(serialized, UnusedIgnoreKind::Pyrefly).unwrap(),
-            expected_unused,
+            1,
         );
         assert_eq!(
             fs_anyhow::read_to_string(&get_path(&tdir)).unwrap(),
-            contents
+            contents.replace("bad-assignment, ", ""),
         );
     }
 
