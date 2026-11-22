@@ -4112,6 +4112,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 ErrorKind::UnknownFromError,
                 format!("{subject} is unknown because it comes from an error"),
             )
+            .with_explanation_range(range)
             .emit();
     }
 
