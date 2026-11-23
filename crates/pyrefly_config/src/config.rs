@@ -495,6 +495,12 @@ impl FallbackSearchPath {
         matches!(self, Self::DirectoryRelative(_))
     }
 
+    /// Whether the paths depend on the importing file, so import lookups that use them cannot
+    /// be shared between importing files.
+    pub fn depends_on_importing_file(&self) -> bool {
+        matches!(self, Self::DirectoryRelative(_))
+    }
+
     pub fn is_empty(&self) -> bool {
         match self {
             Self::Explicit(paths) => paths.is_empty(),

@@ -22,7 +22,6 @@ use vec1::vec1;
 
 use crate::config::config::ConfigFile;
 use crate::config::config::ConfigSource;
-use crate::config::config::FallbackSearchPath;
 use crate::config::config::ImportLookupPathPart;
 use crate::error::context::ErrorContext;
 use crate::module::finder::DirEntryCache;
@@ -293,10 +292,7 @@ impl LoaderFindCache {
         // (112K files × thousands of modules) to just thousands.
         let is_origin_independent = config.source_db.is_none()
             && config.sub_configs.is_empty()
-            && !matches!(
-                config.fallback_search_path,
-                FallbackSearchPath::DirectoryRelative(_)
-            );
+            && !config.fallback_search_path.depends_on_importing_file();
         Self {
             config,
             is_origin_independent,
@@ -492,10 +488,7 @@ impl LoaderFindCache {
             .as_ref()
             .is_some_and(|source_db| !source_db.may_contain_module(module))
             && self.config.sub_configs.is_empty()
-            && !matches!(
-                self.config.fallback_search_path,
-                FallbackSearchPath::DirectoryRelative(_)
-            )
+            && !self.config.fallback_search_path.depends_on_importing_file()
     }
 
     #[allow(unused)] // will be used soon
