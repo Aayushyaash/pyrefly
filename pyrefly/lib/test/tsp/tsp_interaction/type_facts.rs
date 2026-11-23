@@ -52,17 +52,33 @@ fn setup(source: &str) -> (TspInteraction, String, i32, TempDir) {
 
 /// Ranges are `(line, start, line, end)` into `SOURCE`, zero-based.
 fn facts(queries: &[((u32, u32, u32, u32), bool)]) -> serde_json::Value {
+    facts_with_uri(queries).0
+}
+
+/// Like `facts`, also returning the URI of `main.py`, which definitions in it name.
+fn facts_with_uri(queries: &[((u32, u32, u32, u32), bool)]) -> (serde_json::Value, String) {
     let (mut tsp, uri, snapshot, _dir) = setup(SOURCE);
     tsp.server.type_facts(&uri, queries, snapshot);
     let resp = tsp.client.receive_response_skip_notifications();
     assert!(resp.error.is_none(), "unexpected error: {:?}", resp.error);
     tsp.shutdown();
-    resp.result.expect("result")
+    (resp.result.expect("result"), uri)
+}
+
+/// A definition in `main.py`: the name at `(line, start..end)`, zero-based.
+fn main_definition(uri: &str, line: u32, start: u32, end: u32) -> serde_json::Value {
+    json!({
+        "uri": uri,
+        "range": {
+            "start": {"line": line, "character": start},
+            "end": {"line": line, "character": end},
+        },
+    })
 }
 
 #[test]
 fn test_instance_class_module_and_function() {
-    let result = facts(&[
+    let (result, uri) = facts_with_uri(&[
         // `c` on line 10: an instance of Child, whose MRO lists Base.
         ((10, 0, 10, 1), false),
         // `Child` in `class Child(Base)` on line 3: the class object.
@@ -72,16 +88,25 @@ fn test_instance_class_module_and_function() {
         // `make` on line 5: a function returning Child.
         ((5, 4, 5, 8), false),
     ]);
+    // `Child` is named on line 3, `make` on line 5.
+    let child = main_definition(&uri, 3, 6, 11);
+    let make = main_definition(&uri, 5, 4, 8);
     assert_eq!(
         result,
         json!([
-            {"kind": "instance", "qname": "main.Child", "mro": ["main.Base"]},
-            {"kind": "class", "qname": "main.Child", "mro": ["main.Base"]},
+            {"kind": "instance", "qname": "main.Child", "definition": child, "mro": ["main.Base"]},
+            {"kind": "class", "qname": "main.Child", "definition": child, "mro": ["main.Base"]},
             {"kind": "module", "name": "os.path"},
             {
                 "kind": "function",
                 "qname": "main.make",
-                "returns": {"kind": "instance", "qname": "main.Child", "mro": ["main.Base"]},
+                "definition": make,
+                "returns": {
+                    "kind": "instance",
+                    "qname": "main.Child",
+                    "definition": child,
+                    "mro": ["main.Base"],
+                },
             },
         ])
     );
@@ -89,12 +114,18 @@ fn test_instance_class_module_and_function() {
 
 #[test]
 fn test_expected_type_at_call_argument() {
-    // `c` in `take(c)` on line 11: computed Child, expected Base (the parameter).
-    let result = facts(&[((11, 5, 11, 6), false), ((11, 5, 11, 6), true)]);
+    // `c` in `take(c)` on line 11: computed Child, expected Base (the parameter),
+    // which is named on line 2.
+    let (result, uri) = facts_with_uri(&[((11, 5, 11, 6), false), ((11, 5, 11, 6), true)]);
     assert_eq!(result[0]["qname"], json!("main.Child"));
     assert_eq!(
         result[1],
-        json!({"kind": "instance", "qname": "main.Base", "mro": []})
+        json!({
+            "kind": "instance",
+            "qname": "main.Base",
+            "definition": main_definition(&uri, 2, 6, 10),
+            "mro": [],
+        })
     );
 }
 
@@ -127,6 +158,20 @@ fn test_union_members() {
 }
 
 #[test]
+fn test_definition_in_another_module() {
+    // `x` in `print(x)` on line 13 is `int | Child`; `int` is defined in the bundled
+    // `builtins` stub.
+    let result = facts(&[((13, 10, 13, 11), false)]);
+    let members = result[0]["members"].as_array().expect("union members");
+    let int = members
+        .iter()
+        .find(|m| m["qname"] == json!("builtins.int"))
+        .expect("builtins.int among the members");
+    let uri = int["definition"]["uri"].as_str().expect("a definition URI");
+    assert!(uri.ends_with("builtins.pyi"), "got {uri}");
+}
+
+#[test]
 fn test_stale_snapshot_is_rejected() {
     let (mut tsp, uri, _snapshot, _dir) = setup(SOURCE);
     tsp.server
@@ -142,13 +187,17 @@ fn test_stale_snapshot_is_rejected() {
 #[test]
 fn test_union_type_form_lists_its_classes() {
     // The annotation `Child | None` on line 15 evaluates to `type[Child | None]`.
-    let result = facts(&[((15, 5, 15, 17), false)]);
+    let (result, uri) = facts_with_uri(&[((15, 5, 15, 17), false)]);
     assert_eq!(result[0]["kind"], json!("union"), "got {result}");
     let members = result[0]["members"].as_array().expect("union members");
+    let child = json!({
+        "kind": "class",
+        "qname": "main.Child",
+        "definition": main_definition(&uri, 3, 6, 11),
+        "mro": ["main.Base"],
+    });
     assert!(
-        members
-            .iter()
-            .any(|m| m == &json!({"kind": "class", "qname": "main.Child", "mro": ["main.Base"]})),
+        members.contains(&child),
         "expected class main.Child among {members:?}"
     );
 }

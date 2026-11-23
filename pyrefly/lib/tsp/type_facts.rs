@@ -27,6 +27,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::state::state::Transaction;
+use crate::tsp::type_conversion::path_to_uri;
 use crate::types::env::TypeEnv;
 
 pub const TYPE_FACTS_METHOD: &str = "pyrefly/typeFacts";
@@ -56,6 +57,13 @@ pub struct TypeFactsQuery {
     pub expected: bool,
 }
 
+/// Where a class or function is defined: the file of its module and the range of its name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Definition {
+    pub uri: String,
+    pub range: Range,
+}
+
 /// What a type is, reduced to what an analysis compares on. Qualified names are
 /// the defining module plus the name (`pkg.mod.Cls`), not the re-exported path.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -65,13 +73,15 @@ pub enum TypeFact {
     /// class object is specialized, as in the annotation `list[int]`.
     Class {
         qname: String,
+        definition: Definition,
         mro: Vec<String>,
         #[serde(rename = "typeArgs", skip_serializing_if = "Vec::is_empty")]
         type_args: Vec<TypeFact>,
     },
-    /// An instance of a class.
+    /// An instance of a class. `definition` is the class's.
     Instance {
         qname: String,
+        definition: Definition,
         mro: Vec<String>,
         #[serde(rename = "typeArgs", skip_serializing_if = "Vec::is_empty")]
         type_args: Vec<TypeFact>,
@@ -80,10 +90,13 @@ pub enum TypeFact {
         name: String,
     },
     /// A function, bound method, or overloaded function. `qname` is absent for
-    /// functions without a definition (lambdas, synthesized callables).
+    /// functions without a name (lambdas), and `definition` for functions without a
+    /// `def` (lambdas, synthesized callables).
     Function {
         #[serde(skip_serializing_if = "Option::is_none")]
         qname: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        definition: Option<Definition>,
         #[serde(skip_serializing_if = "Option::is_none")]
         returns: Option<Box<TypeFact>>,
     },
@@ -126,6 +139,10 @@ fn describe(
     };
     let function = |metadata: &FuncMetadata, ret: Option<&Type>| TypeFact::Function {
         qname: function_qname(env, metadata),
+        definition: metadata
+            .kind
+            .as_func_def_id()
+            .map(|id| definition(&id.qname)),
         returns: ret
             .filter(|_| depth > 0)
             .map(|r| Box::new(describe(transaction, handle, env, r, depth - 1))),
@@ -133,22 +150,26 @@ fn describe(
     match ty {
         Type::ClassType(ct) => TypeFact::Instance {
             qname: qname(ct.class_object().qname(env)),
+            definition: definition(ct.class_object().qname(env)),
             mro: mro(transaction, handle, ct.class_object()),
             type_args: nested(ct.targs().as_slice()),
         },
         Type::ClassDef(cls) => TypeFact::Class {
             qname: qname(cls.qname(env)),
+            definition: definition(cls.qname(env)),
             mro: mro(transaction, handle, cls),
             type_args: Vec::new(),
         },
         Type::SpecializedClassDef(ct) => TypeFact::Class {
             qname: qname(ct.qname(env)),
+            definition: definition(ct.qname(env)),
             mro: mro(transaction, handle, ct.class_object()),
             type_args: nested(ct.targs().as_slice()),
         },
         Type::Type(inner) => match inner.as_ref() {
             Type::ClassType(ct) => TypeFact::Class {
                 qname: qname(ct.class_object().qname(env)),
+                definition: definition(ct.class_object().qname(env)),
                 mro: mro(transaction, handle, ct.class_object()),
                 type_args: nested(ct.targs().as_slice()),
             },
@@ -214,6 +235,13 @@ fn overload_return(signatures: &[OverloadType]) -> Option<&Type> {
 
 fn qname(name: &QName) -> String {
     format!("{}.{}", name.module_name(), name.id())
+}
+
+fn definition(name: &QName) -> Definition {
+    Definition {
+        uri: path_to_uri(name.module_path()),
+        range: name.module().to_lsp_range(name.range()),
+    }
 }
 
 fn function_qname(env: &dyn TypeEnv, metadata: &FuncMetadata) -> Option<String> {
