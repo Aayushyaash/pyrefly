@@ -281,7 +281,7 @@ class TorchPatchTest(unittest.TestCase):
                 return [
                     finder
                     for finder in sys.meta_path
-                    if type(finder).__name__ == "_PostImportHook"
+                    if type(finder).__name__ == "_PostImportHook" and finder.name == "torch"
                 ]
             """
         )
@@ -334,7 +334,7 @@ class TorchPatchTest(unittest.TestCase):
 
             descriptor = torch.Tensor.__dict__["__class_getitem__"]
             shape_extensions._patch_torch()
-            shape_extensions._patch_torch_when_imported()
+            shape_extensions._patch_when_imported("torch", shape_extensions._patch_torch)
             assert torch.Tensor.__dict__["__class_getitem__"] is descriptor
             assert hooks() == []
             """
@@ -406,7 +406,6 @@ class TorchPatchTest(unittest.TestCase):
         )
 
     def test_failed_concurrent_import(self) -> None:
-        # Known bug: waiting can restart a framework whose concurrent import failed.
         self.run_script(
             """
             import threading
@@ -443,16 +442,17 @@ class TorchPatchTest(unittest.TestCase):
             with mock.patch.object(
                 shape_extensions, "_is_initializing", fail_after_observation
             ):
-                try:
-                    shape_extensions._patch_torch_when_imported()
-                except RuntimeError as error:
-                    assert str(error) == "fake torch initialization failed"
-                else:
-                    raise AssertionError("expected the wait to restart Torch")
+                shape_extensions._patch_when_imported("torch", shape_extensions._patch_torch)
 
             assert failures == ["fake torch initialization failed"]
-            assert sys.fake_torch_attempts == 2
+            assert sys.fake_torch_attempts == 1
             assert "torch" not in sys.modules
+            assert len(hooks()) == 1
+
+            with mock.patch.dict("os.environ", {"FAKE_TORCH_FAIL_CONCURRENT": ""}):
+                import torch
+            assert_patched(torch)
+            assert hooks() == []
             """,
             FAKE_TORCH_FAIL_CONCURRENT="1",
         )

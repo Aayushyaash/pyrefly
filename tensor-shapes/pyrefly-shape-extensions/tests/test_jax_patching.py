@@ -56,8 +56,7 @@ class JaxPatchTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_annotation_import_loads_jax(self) -> None:
-        # Known bug: an annotation marker eagerly initializes an available JAX.
+    def test_annotation_import_does_not_load_jax(self) -> None:
         self.run_script(
             """
             import sys
@@ -67,7 +66,7 @@ class JaxPatchTest(unittest.TestCase):
             def identity[N: IntVar](value: N) -> N:
                 return value
 
-            assert "jax" in sys.modules
+            assert "jax" not in sys.modules
             assert "torch" not in sys.modules
             assert identity.__type_params__[0].__bound__ is IntVar
             assert typing.get_type_hints(identity)["return"] is identity.__type_params__[0]
@@ -133,30 +132,39 @@ class JaxPatchTest(unittest.TestCase):
         )
 
     def test_jax_patch_failure(self) -> None:
-        # Known bug: an incompatible JAX class breaks the marker import.
-        self.run_script(
-            """
-            import jax
+        for imported_first in ("0", "1"):
+            self.run_script(
+                """
+                import os
+                import sys
+                import warnings
 
-            try:
-                import shape_extensions
-            except TypeError as error:
-                assert "__class_getitem__" in str(error)
-            else:
-                raise AssertionError("expected JAX patching to fail")
-            assert jax.fully_imported
-            """,
-            FAKE_JAX_UNPATCHABLE="1",
-        )
+                if os.environ["JAX_IMPORTED_FIRST"] == "1":
+                    import jax
+                with warnings.catch_warnings(record=True) as caught:
+                    warnings.simplefilter("always")
+                    import shape_extensions
+                    import jax
+
+                assert jax.fully_imported
+                assert sys.modules["jax"] is jax
+                assert len(caught) == 1
+                assert issubclass(caught[0].category, RuntimeWarning)
+                assert "Could not patch jax" in str(caught[0].message)
+                """,
+                FAKE_JAX_UNPATCHABLE="1",
+                JAX_IMPORTED_FIRST=imported_first,
+            )
 
     def test_jax_initialization_failure_and_retry(self) -> None:
-        # Known bug: JAX's initialization failure escapes the marker import.
         self.run_script(
             """
             import sys
+            import shape_extensions
 
+            assert "jax" not in sys.modules
             try:
-                import shape_extensions
+                import jax
             except RuntimeError as error:
                 assert str(error) == "fake jax initialization failed"
             else:
@@ -164,7 +172,6 @@ class JaxPatchTest(unittest.TestCase):
             assert "jax" not in sys.modules
 
             import jax
-            import shape_extensions
 
             assert sys.fake_jax_attempts == 2
             assert jax.Array[2, 3] is jax.Array
