@@ -488,6 +488,13 @@ impl FallbackSearchPath {
         }
     }
 
+    /// Whether this path is searched only after site packages, as a last resort whose results
+    /// carry a warning. Otherwise, it is searched before site packages, like the project root
+    /// that it stands in for.
+    pub fn is_last_resort(&self) -> bool {
+        matches!(self, Self::DirectoryRelative(_))
+    }
+
     pub fn is_empty(&self) -> bool {
         match self {
             Self::Explicit(paths) => paths.is_empty(),
@@ -1290,14 +1297,11 @@ impl ConfigFile {
                 origin.and_then(|p| p.parent()),
             )
         });
-        // A directory-relative fallback search path is only consulted when everything
-        // else fails, so it comes after the site package path.
         let (fallback_before_site_packages, fallback_after_site_packages) =
-            match self.fallback_search_path {
-                FallbackSearchPath::DirectoryRelative(_) => (None, fallback_search_path),
-                FallbackSearchPath::Explicit(_) | FallbackSearchPath::Empty => {
-                    (fallback_search_path, None)
-                }
+            if self.fallback_search_path.is_last_resort() {
+                (None, fallback_search_path)
+            } else {
+                (fallback_search_path, None)
             };
         result.extend(fallback_before_site_packages);
         result.push(ImportLookupPathPart::SitePackagePath(

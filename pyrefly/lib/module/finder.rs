@@ -34,7 +34,6 @@ static STDLIB_SUGGESTION_CACHE: LazyLock<LockedMap<ModuleName, Option<ModuleName
     LazyLock::new(LockedMap::new);
 
 use crate::config::config::ConfigFile;
-use crate::config::config::FallbackSearchPath;
 use crate::module::bundled::BundledStub;
 use crate::module::third_party::get_bundled_third_party;
 use crate::module::typeshed::custom_typeshed_excludes;
@@ -787,7 +786,7 @@ pub(crate) fn find_import_with_mode(
         )
     {
         path
-    } else if let FallbackSearchPath::Explicit(_) = &config.fallback_search_path
+    } else if !config.fallback_search_path.is_last_resort()
         // Without a config file, the guessed fallback search path stands in for the project
         // root, which comes before site packages at runtime, so it is searched here. The
         // directory-relative fallback search path is a last resort and is searched at the
@@ -868,7 +867,7 @@ pub(crate) fn find_import_with_mode(
     style_filter.is_none()
     {
         FindingOrError::new_finding(ModulePath::namespace(namespace.clone()))
-    } else if let FallbackSearchPath::DirectoryRelative(_) = &config.fallback_search_path
+    } else if config.fallback_search_path.is_last_resort()
         // The directory-relative fallback only applies to imports that nothing above
         // resolved, not even as a namespace package. The namespace branch above consumes
         // `namespaces_found` only without a style filter, so check it explicitly here.
@@ -990,6 +989,7 @@ mod tests {
     use pyrefly_config::base::Preset;
     use pyrefly_config::config::ConfigSource;
     use pyrefly_config::config::DirectoryRelativeFallbackSearchPathCache;
+    use pyrefly_config::config::FallbackSearchPath;
     use pyrefly_config::environment::environment::PythonEnvironment;
     use pyrefly_config::environment::interpreters::Interpreters;
     use pyrefly_python::module_path::ModulePathDetails;
