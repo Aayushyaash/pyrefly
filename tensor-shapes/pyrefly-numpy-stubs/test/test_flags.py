@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from typing import assert_type
+
 import numpy as np
 from shape_extensions import assert_raises, assert_shape
 
@@ -14,12 +16,13 @@ from shape_extensions import assert_raises, assert_shape
 def test_writeable_flag_attribute() -> None:
     array = np.ones((2, 3))
 
-    assert array.flags.writeable  # E: has no attribute `writeable`
-    array.flags.writeable = False  # E: has no attribute `writeable`
+    assert_type(array.flags.writeable, bool)
+    assert array.flags.writeable
+    array.flags.writeable = False
     assert not array.flags["W"]
     with assert_raises(ValueError):
         array[0, 0] = 2.0
-    array.flags.writeable = True  # E: has no attribute `writeable`
+    array.flags.writeable = True
     array[0, 0] = 2.0
     assert array[0, 0] == 2.0
     assert_shape(array.shape, (2, 3))
@@ -28,11 +31,11 @@ def test_writeable_flag_attribute() -> None:
 def test_writeable_flag_dictionary_assignment() -> None:
     array = np.ones(())
 
-    array.flags["W"] = False  # E: has no attribute `__setitem__`
+    array.flags["W"] = False
     assert not array.flags["WRITEABLE"]
     with assert_raises(ValueError):
         array[()] = 2.0
-    array.flags["WRITEABLE"] = True  # E: has no attribute `__setitem__`
+    array.flags["WRITEABLE"] = True
     array[()] = 2.0
     assert array[()] == 2.0
     assert_shape(array.shape, ())
