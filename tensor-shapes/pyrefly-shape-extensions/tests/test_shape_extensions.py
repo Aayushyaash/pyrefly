@@ -220,6 +220,11 @@ import sys
 import time
 
 sys.fake_torch_attempts = getattr(sys, "fake_torch_attempts", 0) + 1
+if os.environ.get("FAKE_TORCH_FAIL_CONCURRENT"):
+    if sys.fake_torch_attempts == 1:
+        sys.torch_import_started.set()
+        assert sys.torch_import_can_fail.wait(10)
+    raise RuntimeError("fake torch initialization failed")
 if os.environ.get("FAKE_TORCH_FAIL_ONCE") and sys.fake_torch_attempts == 1:
     raise RuntimeError("fake torch failed to import")
 time.sleep(float(os.environ.get("FAKE_TORCH_DELAY", "0")))
@@ -237,9 +242,14 @@ fully_imported = True
 """
 
 _FAKE_TORCH_NN_INIT = """
+import os
+
+
 def __getattr__(name):
     if name.startswith("_"):
         raise AttributeError(name)
+    if name == "Linear" and os.environ.get("FAKE_TORCH_UNPATCHABLE"):
+        return int
     cls = globals()[name] = type(name, (), {})
     return cls
 """
@@ -356,24 +366,21 @@ class TorchPatchTest(unittest.TestCase):
         self.run_script(
             """
             import warnings
-            from unittest import mock
 
             import shape_extensions
 
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
-                with mock.patch.object(
-                    shape_extensions, "_patch_torch", side_effect=AttributeError("missing class")
-                ):
-                    import torch
+                import torch
 
             assert torch.fully_imported
             assert sys.modules["torch"] is torch
             assert hooks() == []
             assert len(caught) == 1
             assert issubclass(caught[0].category, RuntimeWarning)
-            assert "missing class" in str(caught[0].message)
-            """
+            assert "__class_getitem__" in str(caught[0].message)
+            """,
+            FAKE_TORCH_UNPATCHABLE="1",
         )
 
     def test_waits_for_torch_import_in_another_thread(self) -> None:
@@ -396,6 +403,58 @@ class TorchPatchTest(unittest.TestCase):
             thread.join()
             """,
             FAKE_TORCH_DELAY="0.5",
+        )
+
+    def test_failed_concurrent_import(self) -> None:
+        # Known bug: waiting can restart a framework whose concurrent import failed.
+        self.run_script(
+            """
+            import threading
+            from unittest import mock
+
+            import shape_extensions
+
+            for hook in hooks():
+                hook.remove()
+            sys.torch_import_started = threading.Event()
+            sys.torch_import_can_fail = threading.Event()
+            failures = []
+
+            def import_torch():
+                try:
+                    import torch
+                except RuntimeError as error:
+                    failures.append(str(error))
+
+            thread = threading.Thread(target=import_torch)
+            thread.start()
+            assert sys.torch_import_started.wait(10)
+            is_initializing = shape_extensions._is_initializing
+
+            def fail_after_observation(module):
+                initializing = is_initializing(module)
+                if initializing:
+                    # Force failure between observing initialization and waiting.
+                    sys.torch_import_can_fail.set()
+                    thread.join(10)
+                    assert not thread.is_alive()
+                return initializing
+
+            with mock.patch.object(
+                shape_extensions, "_is_initializing", fail_after_observation
+            ):
+                try:
+                    shape_extensions._patch_torch_when_imported()
+                except RuntimeError as error:
+                    assert str(error) == "fake torch initialization failed"
+                else:
+                    raise AssertionError("expected the wait to restart Torch")
+
+            assert failures == ["fake torch initialization failed"]
+            assert sys.fake_torch_attempts == 2
+            assert "torch" not in sys.modules
+            """,
+            FAKE_TORCH_FAIL_CONCURRENT="1",
         )
 
     def test_import_during_torch_initialization_leaves_torch_unpatched(self) -> None:
