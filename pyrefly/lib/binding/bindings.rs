@@ -1261,7 +1261,7 @@ impl Bindings {
         }
         let module_deletes = scope_trace.module_deletes().clone();
         let functools_wrapper_mutation = builder.table.insert(
-            Key::FunctoolsWrapperMutation(TextRange::default()),
+            Key::FunctoolsWrapperMutation(x.range),
             Binding::FunctoolsWrapperMutation(builder.has_functools_wrapper_mutation),
         );
         builder.table.insert(
