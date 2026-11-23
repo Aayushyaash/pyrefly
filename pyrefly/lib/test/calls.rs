@@ -419,6 +419,36 @@ fn test_env_3_12() -> TestEnv {
     })
 }
 
+// https://github.com/pyrefly-org/pyrefly/issues/5724
+testcase!(
+    bug = "Deprecation is lost when a decorator returns a callable instance",
+    test_deprecated_callable_instance_decorator,
+    r#"
+from collections.abc import Callable
+from typing import assert_type
+from warnings import deprecated
+
+class Wrapper[T]:
+    def __call__(self, *args: object, **kwargs: object) -> T: ...
+    def wrapped(self) -> T: ...
+
+def wrap[**P, T](fn: Callable[P, T]) -> Wrapper[T]: ...
+
+@wrap
+@deprecated("Use another function")
+def old_function() -> None: ...
+
+assert_type(old_function, Wrapper[None])
+assert_type(old_function(1), None)
+assert_type(old_function.wrapped(), None)
+
+@wrap
+def current_function() -> None: ...
+
+assert_type(current_function(1), None)
+    "#,
+);
+
 testcase!(
     test_deprecated_union_decorator,
     r#"
