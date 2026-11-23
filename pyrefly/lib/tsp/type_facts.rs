@@ -24,10 +24,13 @@ use pyrefly_types::types::Forallable;
 use pyrefly_types::types::OverloadType;
 use pyrefly_types::types::Type;
 use pyrefly_util::display::DisplayWithCtx;
+use ruff_python_ast::name::Name;
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::alt::answers_solver::AnswersSolver;
 use crate::state::state::Transaction;
+use crate::state::state::TransactionHandle;
 use crate::tsp::type_conversion::path_to_uri;
 use crate::types::env::TypeEnv;
 
@@ -56,6 +59,9 @@ pub struct TypeFactsQuery {
     /// fallback to the computed type, so `null` means "no expectation here".
     #[serde(default)]
     pub expected: bool,
+    /// For a class or an instance, also list what the class defines in its own body.
+    #[serde(default)]
+    pub members: bool,
 }
 
 /// Where a class or function is defined: the file of its module and the range of its name.
@@ -74,12 +80,45 @@ pub enum FunctionFlag {
     Staticmethod,
     Classmethod,
     Property,
+    /// Comes with `property`: Pyrefly treats a `cached_property` as a property.
     CachedProperty,
     Abstract,
     Overload,
     Override,
     Final,
     Deprecated,
+}
+
+/// What `class` and `instance` facts say about the class.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ClassFacts {
+    pub qname: String,
+    pub definition: Definition,
+    pub mro: Vec<String>,
+    /// Present for a dataclass, an attrs class, or another `dataclass_transform` class.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataclass: Option<DataclassFacts>,
+    /// What the class's own body defines, in source order. Present only when the
+    /// query asks for members.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub members: Option<Vec<Member>>,
+    #[serde(rename = "typeArgs", skip_serializing_if = "Vec::is_empty")]
+    pub type_args: Vec<TypeFact>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DataclassFacts {
+    pub frozen: bool,
+}
+
+/// A name a class body binds (a method, a nested class, or an assigned or annotated
+/// attribute) and its type after decorators, described without nesting. A `def` whose
+/// decorator returns another object, such as `functools.lru_cache`, has that object's type.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Member {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub ty: TypeFact,
 }
 
 /// What a type is, reduced to what an analysis compares on. Qualified names are
@@ -89,21 +128,9 @@ pub enum FunctionFlag {
 pub enum TypeFact {
     /// A class object: `C` or `type[C]`. Type arguments are present when the
     /// class object is specialized, as in the annotation `list[int]`.
-    Class {
-        qname: String,
-        definition: Definition,
-        mro: Vec<String>,
-        #[serde(rename = "typeArgs", skip_serializing_if = "Vec::is_empty")]
-        type_args: Vec<TypeFact>,
-    },
-    /// An instance of a class. `definition` is the class's.
-    Instance {
-        qname: String,
-        definition: Definition,
-        mro: Vec<String>,
-        #[serde(rename = "typeArgs", skip_serializing_if = "Vec::is_empty")]
-        type_args: Vec<TypeFact>,
-    },
+    Class(ClassFacts),
+    /// An instance of a class.
+    Instance(ClassFacts),
     Module {
         name: String,
     },
@@ -130,14 +157,16 @@ pub enum TypeFact {
     },
 }
 
-/// Describe `ty`, resolving MROs through `handle`'s transaction.
-pub fn type_fact(transaction: &Transaction, handle: &Handle, ty: &Type) -> TypeFact {
+/// Describe `ty`, resolving classes through `handle`'s transaction. `members` lists
+/// the members of the class `ty` names, but not of the classes nested in it.
+pub fn type_fact(transaction: &Transaction, handle: &Handle, ty: &Type, members: bool) -> TypeFact {
     describe(
         transaction,
         handle,
         &transaction.type_env(handle),
         ty,
         NESTING,
+        members,
     )
 }
 
@@ -147,6 +176,7 @@ fn describe(
     env: &dyn TypeEnv,
     ty: &Type,
     depth: usize,
+    members: bool,
 ) -> TypeFact {
     let nested = |types: &[Type]| -> Vec<TypeFact> {
         if depth == 0 {
@@ -154,8 +184,27 @@ fn describe(
         }
         types
             .iter()
-            .map(|t| describe(transaction, handle, env, t, depth - 1))
+            .map(|t| describe(transaction, handle, env, t, depth - 1, false))
             .collect()
+    };
+    let class = |cls: &Class, type_args: Vec<TypeFact>| {
+        let solved = solve_class(transaction, handle, cls, members);
+        ClassFacts {
+            qname: qname(cls.qname(env)),
+            definition: definition(cls.qname(env)),
+            mro: solved.mro,
+            dataclass: solved.dataclass,
+            members: solved.members.map(|members| {
+                members
+                    .into_iter()
+                    .map(|(name, ty)| Member {
+                        name: name.to_string(),
+                        ty: describe(transaction, handle, env, &ty, 0, false),
+                    })
+                    .collect()
+            }),
+            type_args,
+        }
     };
     let function = |metadata: &FuncMetadata, ret: Option<&Type>| TypeFact::Function {
         qname: function_qname(env, metadata),
@@ -166,34 +215,20 @@ fn describe(
         flags: function_flags(&metadata.flags),
         returns: ret
             .filter(|_| depth > 0)
-            .map(|r| Box::new(describe(transaction, handle, env, r, depth - 1))),
+            .map(|r| Box::new(describe(transaction, handle, env, r, depth - 1, false))),
     };
     match ty {
-        Type::ClassType(ct) => TypeFact::Instance {
-            qname: qname(ct.class_object().qname(env)),
-            definition: definition(ct.class_object().qname(env)),
-            mro: mro(transaction, handle, ct.class_object()),
-            type_args: nested(ct.targs().as_slice()),
-        },
-        Type::ClassDef(cls) => TypeFact::Class {
-            qname: qname(cls.qname(env)),
-            definition: definition(cls.qname(env)),
-            mro: mro(transaction, handle, cls),
-            type_args: Vec::new(),
-        },
-        Type::SpecializedClassDef(ct) => TypeFact::Class {
-            qname: qname(ct.qname(env)),
-            definition: definition(ct.qname(env)),
-            mro: mro(transaction, handle, ct.class_object()),
-            type_args: nested(ct.targs().as_slice()),
-        },
+        Type::ClassType(ct) => {
+            TypeFact::Instance(class(ct.class_object(), nested(ct.targs().as_slice())))
+        }
+        Type::ClassDef(cls) => TypeFact::Class(class(cls, Vec::new())),
+        Type::SpecializedClassDef(ct) => {
+            TypeFact::Class(class(ct.class_object(), nested(ct.targs().as_slice())))
+        }
         Type::Type(inner) => match inner.as_ref() {
-            Type::ClassType(ct) => TypeFact::Class {
-                qname: qname(ct.class_object().qname(env)),
-                definition: definition(ct.class_object().qname(env)),
-                mro: mro(transaction, handle, ct.class_object()),
-                type_args: nested(ct.targs().as_slice()),
-            },
+            Type::ClassType(ct) => {
+                TypeFact::Class(class(ct.class_object(), nested(ct.targs().as_slice())))
+            }
             // `type[A | None]` -- what an annotation like `A | None` evaluates to --
             // is described as the union of the classes it names, so a client reading
             // a field's annotation sees each member rather than an opaque display.
@@ -208,6 +243,7 @@ fn describe(
                             env,
                             &Type::type_of(member.clone()),
                             depth,
+                            false,
                         )
                     })
                     .collect(),
@@ -291,19 +327,54 @@ fn function_qname(env: &dyn TypeEnv, metadata: &FuncMetadata) -> Option<String> 
     })
 }
 
-/// Ancestors of `cls` in MRO order, excluding `cls` itself and `object`. Empty
-/// when the class's module cannot be solved from this handle.
-fn mro(transaction: &Transaction, handle: &Handle, cls: &Class) -> Vec<String> {
+/// What the solver knows about a class.
+#[derive(Default)]
+struct SolvedClass {
+    /// Ancestors in MRO order, excluding the class itself and `object`.
+    mro: Vec<String>,
+    dataclass: Option<DataclassFacts>,
+    /// The names the class body binds, with their types.
+    members: Option<Vec<(Name, Type)>>,
+}
+
+/// Solve `cls` from `handle`, listing its members if `members` is set. Empty when
+/// the class's module cannot be solved from this handle.
+fn solve_class(
+    transaction: &Transaction,
+    handle: &Handle,
+    cls: &Class,
+    members: bool,
+) -> SolvedClass {
     transaction
-        .ad_hoc_solve(handle, "type_facts_mro", |solver| {
-            solver
+        .ad_hoc_solve(handle, "type_facts_class", |solver| SolvedClass {
+            mro: solver
                 .get_mro_for_class(cls)
                 .ancestors_no_object()
                 .iter()
                 .map(|ancestor| qname(ancestor.class_object().qname(&solver)))
-                .collect()
+                .collect(),
+            dataclass: solver
+                .get_metadata_for_class(cls)
+                .dataclass_metadata()
+                .map(|metadata| DataclassFacts {
+                    frozen: metadata.kws.frozen,
+                }),
+            members: members.then(|| own_members(&solver, cls)),
         })
         .unwrap_or_default()
+}
+
+fn own_members(solver: &AnswersSolver<TransactionHandle>, cls: &Class) -> Vec<(Name, Type)> {
+    let Some(fields) = solver.get_class_fields(cls) else {
+        return Vec::new();
+    };
+    fields
+        .class_body_fields()
+        .filter_map(|name| {
+            let field = solver.get_field_from_current_class_only(cls, name)?;
+            Some((name.clone(), field.ty()))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -319,16 +390,16 @@ mod tests {
             |state, handle, position| {
                 let transaction = state.transaction();
                 let ty = transaction.get_type_at(handle, position).unwrap();
-                let fact = type_fact(&transaction, handle, &ty);
-                let TypeFact::Class {
+                let fact = type_fact(&transaction, handle, &ty, false);
+                let TypeFact::Class(ClassFacts {
                     qname, type_args, ..
-                } = fact
+                }) = fact
                 else {
                     panic!("Expected a class fact, got {fact:?}");
                 };
                 assert_eq!(qname, "main.Box");
                 assert!(
-                    matches!(type_args.as_slice(), [TypeFact::Instance { qname, .. }] if qname == "builtins.int")
+                    matches!(type_args.as_slice(), [TypeFact::Instance(ClassFacts { qname, .. })] if qname == "builtins.int")
                 );
                 String::new()
             },

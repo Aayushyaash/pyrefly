@@ -15,7 +15,7 @@ use crate::test::tsp::tsp_interaction::object_model::TspInteraction;
 use crate::test::tsp::tsp_interaction::object_model::get_current_snapshot;
 use crate::test::tsp::tsp_interaction::object_model::write_pyproject;
 
-const SOURCE: &str = r#"import abc, os.path
+const SOURCE: &str = r#"import abc, dataclasses, functools, os.path
 
 class Base: ...
 class Child(Base): ...
@@ -43,6 +43,18 @@ svc = Svc()
 Svc.s
 svc.a
 svc.ab
+@dataclasses.dataclass(frozen=True)
+class Point:
+    x: int
+    @property
+    def norm(self) -> int: ...
+    @functools.cached_property
+    def cached(self) -> int: ...
+    @functools.lru_cache
+    def memo(self) -> int: ...
+    class Inner: ...
+    def method(self) -> None: ...
+Point
 "#;
 
 fn setup(source: &str) -> (TspInteraction, String, i32, TempDir) {
@@ -194,6 +206,66 @@ fn test_function_flags() {
     assert_eq!(result[1]["flags"], json!(["async"]), "got {result}");
     assert_eq!(result[2]["flags"], json!(["abstract"]), "got {result}");
     assert!(result[3].get("flags").is_none(), "got {result}");
+}
+
+#[test]
+fn test_dataclass_and_members() {
+    // `Point` on line 39, asking for members, and `Child` on line 3, which is not a
+    // dataclass.
+    let (mut tsp, uri, snapshot, _dir) = setup(SOURCE);
+    let range = |line: u32, start: u32, end: u32| {
+        json!({
+            "start": {"line": line, "character": start},
+            "end": {"line": line, "character": end},
+        })
+    };
+    tsp.server.type_facts_raw(
+        &uri,
+        vec![
+            json!({"range": range(39, 0, 5), "members": true}),
+            json!({"range": range(3, 6, 11)}),
+        ],
+        snapshot,
+    );
+    let resp = tsp.client.receive_response_skip_notifications();
+    tsp.shutdown();
+    let result = resp.result.expect("result");
+    assert_eq!(
+        result[0]["dataclass"],
+        json!({"frozen": true}),
+        "got {result}"
+    );
+    // Each member as (name, kind of its type, its flags or its qualified name).
+    let members: Vec<(String, String, serde_json::Value)> = result[0]["members"]
+        .as_array()
+        .expect("members")
+        .iter()
+        .map(|m| {
+            let ty = &m["type"];
+            let detail = match ty["kind"].as_str() {
+                Some("function") => ty.get("flags").cloned().unwrap_or(json!([])),
+                _ => ty["qname"].clone(),
+            };
+            (
+                m["name"].as_str().unwrap().to_owned(),
+                ty["kind"].as_str().unwrap().to_owned(),
+                detail,
+            )
+        })
+        .collect();
+    let expected = [
+        ("x", "instance", json!("builtins.int")),
+        ("norm", "function", json!(["property"])),
+        ("cached", "function", json!(["property", "cachedProperty"])),
+        // The decorator returns a wrapper object, so the member has its type.
+        ("memo", "instance", json!("functools._lru_cache_wrapper")),
+        ("Inner", "class", json!("main.Inner")),
+        ("method", "function", json!([])),
+    ]
+    .map(|(name, kind, detail)| (name.to_owned(), kind.to_owned(), detail));
+    assert_eq!(members, expected, "got {result}");
+    assert!(result[1].get("dataclass").is_none(), "got {result}");
+    assert!(result[1].get("members").is_none(), "got {result}");
 }
 
 #[test]
