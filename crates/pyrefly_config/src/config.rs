@@ -465,7 +465,7 @@ impl FallbackSearchPath {
     /// When we have a Dynamic variant, it only has meaning in the context of
     /// the provided path, so we can only (possibly) return a non-empty vec if the provided path
     /// is `Some`.
-    pub fn for_directory(&self, directory: Option<&Path>) -> Arc<Vec<PathBuf>> {
+    fn for_directory(&self, directory: Option<&Path>) -> Arc<Vec<PathBuf>> {
         match (self, directory) {
             (Self::Explicit(paths), _) => paths.dupe(),
             (Self::DirectoryRelative(s), Some(path)) => s.get_ancestors(path),
