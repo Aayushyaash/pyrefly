@@ -17,6 +17,7 @@ use lsp_types::Range;
 use pyrefly_build::handle::Handle;
 use pyrefly_python::qname::QName;
 use pyrefly_types::class::Class;
+use pyrefly_types::function::FuncFlags;
 use pyrefly_types::function::FuncMetadata;
 use pyrefly_types::types::BoundMethodType;
 use pyrefly_types::types::Forallable;
@@ -64,6 +65,23 @@ pub struct Definition {
     pub range: Range,
 }
 
+/// What a function's own definition says about it: `async def`, and decorators that
+/// Pyrefly interprets rather than applies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FunctionFlag {
+    Async,
+    Staticmethod,
+    Classmethod,
+    Property,
+    CachedProperty,
+    Abstract,
+    Overload,
+    Override,
+    Final,
+    Deprecated,
+}
+
 /// What a type is, reduced to what an analysis compares on. Qualified names are
 /// the defining module plus the name (`pkg.mod.Cls`), not the re-exported path.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -97,6 +115,8 @@ pub enum TypeFact {
         qname: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         definition: Option<Definition>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        flags: Vec<FunctionFlag>,
         #[serde(skip_serializing_if = "Option::is_none")]
         returns: Option<Box<TypeFact>>,
     },
@@ -143,6 +163,7 @@ fn describe(
             .kind
             .as_func_def_id()
             .map(|id| definition(&id.qname)),
+        flags: function_flags(&metadata.flags),
         returns: ret
             .filter(|_| depth > 0)
             .map(|r| Box::new(describe(transaction, handle, env, r, depth - 1))),
@@ -235,6 +256,24 @@ fn overload_return(signatures: &[OverloadType]) -> Option<&Type> {
 
 fn qname(name: &QName) -> String {
     format!("{}.{}", name.module_name(), name.id())
+}
+
+fn function_flags(flags: &FuncFlags) -> Vec<FunctionFlag> {
+    [
+        (flags.is_async, FunctionFlag::Async),
+        (flags.is_staticmethod, FunctionFlag::Staticmethod),
+        (flags.is_classmethod, FunctionFlag::Classmethod),
+        (flags.property_metadata.is_some(), FunctionFlag::Property),
+        (flags.is_cached_property, FunctionFlag::CachedProperty),
+        (flags.is_abstract_method, FunctionFlag::Abstract),
+        (flags.is_overload, FunctionFlag::Overload),
+        (flags.is_override, FunctionFlag::Override),
+        (flags.has_final_decoration, FunctionFlag::Final),
+        (flags.deprecation.is_some(), FunctionFlag::Deprecated),
+    ]
+    .into_iter()
+    .filter_map(|(set, flag)| set.then_some(flag))
+    .collect()
 }
 
 fn definition(name: &QName) -> Definition {

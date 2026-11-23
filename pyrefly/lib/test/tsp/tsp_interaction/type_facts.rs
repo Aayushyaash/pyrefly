@@ -15,7 +15,7 @@ use crate::test::tsp::tsp_interaction::object_model::TspInteraction;
 use crate::test::tsp::tsp_interaction::object_model::get_current_snapshot;
 use crate::test::tsp::tsp_interaction::object_model::write_pyproject;
 
-const SOURCE: &str = r#"import os.path
+const SOURCE: &str = r#"import abc, os.path
 
 class Base: ...
 class Child(Base): ...
@@ -33,6 +33,16 @@ m = os.path
 opt: Child | None = None
 seq: list[Child] = []
 deep: list[list[list[Child]]] = []
+class Svc:
+    @staticmethod
+    def s() -> None: ...
+    async def a(self) -> None: ...
+    @abc.abstractmethod
+    def ab(self) -> None: ...
+svc = Svc()
+Svc.s
+svc.a
+svc.ab
 "#;
 
 fn setup(source: &str) -> (TspInteraction, String, i32, TempDir) {
@@ -169,6 +179,21 @@ fn test_definition_in_another_module() {
         .expect("builtins.int among the members");
     let uri = int["definition"]["uri"].as_str().expect("a definition URI");
     assert!(uri.ends_with("builtins.pyi"), "got {uri}");
+}
+
+#[test]
+fn test_function_flags() {
+    // `Svc.s`, `svc.a` and `svc.ab` on lines 25-27; `make` on line 5 has no flags.
+    let result = facts(&[
+        ((25, 0, 25, 5), false),
+        ((26, 0, 26, 5), false),
+        ((27, 0, 27, 6), false),
+        ((5, 4, 5, 8), false),
+    ]);
+    assert_eq!(result[0]["flags"], json!(["staticmethod"]), "got {result}");
+    assert_eq!(result[1]["flags"], json!(["async"]), "got {result}");
+    assert_eq!(result[2]["flags"], json!(["abstract"]), "got {result}");
+    assert!(result[3].get("flags").is_none(), "got {result}");
 }
 
 #[test]
