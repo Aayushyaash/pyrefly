@@ -7740,6 +7740,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 }
                 ty
             }
+            Binding::FunctoolsWrapperMutation(b) => Lit::Bool(*b).to_implicit_type(),
         }
     }
 
