@@ -1214,6 +1214,20 @@ impl ConfigFile {
         }
     }
 
+    /// The fallback search path for a file in `directory`, or no paths if search path
+    /// heuristics are disabled. Module naming and import lookup both read the fallback search
+    /// path through this method, so a file's name always agrees with how it is found.
+    pub fn fallback_search_path_for_directory(
+        &self,
+        directory: Option<&Path>,
+    ) -> Arc<Vec<PathBuf>> {
+        if self.disable_search_path_heuristics {
+            Arc::new(Vec::new())
+        } else {
+            self.fallback_search_path.for_directory(directory)
+        }
+    }
+
     pub fn site_package_path(&self) -> impl Iterator<Item = &PathBuf> + Clone {
         // we can use unwrap here, because the value in the root config must
         // be set in `ConfigFile::configure()`.
@@ -1657,20 +1671,14 @@ impl ConfigFile {
                     .chain(self.site_package_path())
                     .chain(self.heuristic_search_path());
                 let path = module_path.as_path();
-                let module_kind = if self.disable_search_path_heuristics {
-                    ModuleName::from_path(path, search_paths, &self.extra_file_extensions)
-                        .map(ModuleNameWithKind::guaranteed)
-                        .unwrap_or(ModuleNameWithKind::guaranteed(ModuleName::unknown()))
-                } else {
-                    let fallback_paths = self.fallback_search_path.for_directory(Some(path));
-                    ModuleName::from_path_with_fallback(
-                        path,
-                        search_paths,
-                        fallback_paths.iter(),
-                        &self.extra_file_extensions,
-                    )
-                    .unwrap_or(ModuleNameWithKind::guaranteed(ModuleName::unknown()))
-                };
+                let fallback_paths = self.fallback_search_path_for_directory(path.parent());
+                let module_kind = ModuleName::from_path_with_fallback(
+                    path,
+                    search_paths,
+                    fallback_paths.iter(),
+                    &self.extra_file_extensions,
+                )
+                .unwrap_or(ModuleNameWithKind::guaranteed(ModuleName::unknown()));
                 Handle::from_with_module_name_kind(module_kind, module_path, self.get_sys_info())
             }
         }

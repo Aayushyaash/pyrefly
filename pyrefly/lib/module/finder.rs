@@ -657,21 +657,20 @@ fn find_directory_relative_fallback_import(
     include_shape_stubs: bool,
     options: &mut FindImportOptions<'_>,
 ) -> Option<FindingOrError<ModulePath>> {
-    let FallbackSearchPath::DirectoryRelative(ancestors) = &config.fallback_search_path else {
-        return None;
-    };
-    let directory = origin_path?.parent()?;
     let dir_cache = options.dir_cache;
     let mut namespaces = vec![];
     find_module(
         module,
-        ancestors.get_ancestors(directory).iter().filter(|root| {
-            // A directory inside a regular package is never an import root at runtime,
-            // since it would truncate the package's module names.
-            !["__init__.py", "__init__.pyi"]
-                .iter()
-                .any(|init| dir_cache.file_exists(&root.join(init)))
-        }),
+        config
+            .fallback_search_path_for_directory(origin_path.and_then(Path::parent))
+            .iter()
+            .filter(|root| {
+                // A directory inside a regular package is never an import root at runtime,
+                // since it would truncate the package's module names.
+                !["__init__.py", "__init__.pyi"]
+                    .iter()
+                    .any(|init| dir_cache.file_exists(&root.join(init)))
+            }),
         options.module_options(style_filter, include_shape_stubs, &mut namespaces),
     )
     .or_else(|| {
@@ -788,15 +787,17 @@ pub(crate) fn find_import_with_mode(
         )
     {
         path
-    } else if !config.disable_search_path_heuristics
+    } else if let FallbackSearchPath::Explicit(_) = &config.fallback_search_path
         // Without a config file, the guessed fallback search path stands in for the project
         // root, which comes before site packages at runtime, so it is searched here. The
         // directory-relative fallback search path is a last resort and is searched at the
         // very end instead.
-        && let FallbackSearchPath::Explicit(fallback_search_path) = &config.fallback_search_path
         && let Some(path) = find_module(
             module,
-            fallback_search_path.iter().filter(|path| {
+            config
+                .fallback_search_path_for_directory(origin_path.and_then(Path::parent))
+                .iter()
+                .filter(|path| {
                 // A root equal to a site package path entry is searched by the site package
                 // branch below, where bundled stubs take priority over the packages they stub.
                 // A root nested deeper inside site packages is not on `sys.path` at runtime, so
@@ -867,7 +868,7 @@ pub(crate) fn find_import_with_mode(
     style_filter.is_none()
     {
         FindingOrError::new_finding(ModulePath::namespace(namespace.clone()))
-    } else if !config.disable_search_path_heuristics
+    } else if let FallbackSearchPath::DirectoryRelative(_) = &config.fallback_search_path
         // The directory-relative fallback only applies to imports that nothing above
         // resolved, not even as a namespace package. The namespace branch above consumes
         // `namespaces_found` only without a style filter, so check it explicitly here.
