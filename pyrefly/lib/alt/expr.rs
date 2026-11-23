@@ -1109,6 +1109,29 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     .emit();
                 result = fallback.clone();
             }
+            // A decorator can replace the function with a nominal instance. Deprecation
+            // belongs to the declaration, not to the resulting class or its `__call__`.
+            if errors.is_active()
+                && matches!(result.ty(), Type::ClassType(_))
+                && let Binding::Function { decorated_idx, .. } =
+                    self.bindings().get(self.binding_before_narrowing(x))
+            {
+                let def = self.bindings().get(*decorated_idx);
+                let flags = &self.get_idx(def.undecorated_idx).metadata.flags;
+                if !flags.is_overload
+                    && let Some(deprecation) = flags.deprecation.as_deref()
+                {
+                    let mut builder = errors.error_builder(
+                        x.range,
+                        ErrorKind::Deprecated,
+                        format!("`{}` is deprecated", x.id),
+                    );
+                    if let Some(detail) = deprecation.as_error_detail() {
+                        builder = builder.with_detail(detail);
+                    }
+                    builder.emit();
+                }
+            }
             // Complements PromoteForward for seeded captures.
             if self.bindings().should_promote_at_range(x.range) {
                 result.map_ty(|ty| ty.promote_shallow(self.stdlib))
