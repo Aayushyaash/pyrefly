@@ -1221,18 +1221,23 @@ impl ConfigFile {
         }
     }
 
+    /// The fallback search path, if search path heuristics are enabled. Module naming, import
+    /// lookup, and the import lookup path in errors read the fallback search path through this
+    /// method, so they agree on when it applies.
+    pub fn heuristic_fallback_search_path(&self) -> Option<&FallbackSearchPath> {
+        (!self.disable_search_path_heuristics).then_some(&self.fallback_search_path)
+    }
+
     /// The fallback search path for a file in `directory`, or no paths if search path
-    /// heuristics are disabled. Module naming and import lookup both read the fallback search
-    /// path through this method, so a file's name always agrees with how it is found.
+    /// heuristics are disabled.
     pub fn fallback_search_path_for_directory(
         &self,
         directory: Option<&Path>,
     ) -> Arc<Vec<PathBuf>> {
-        if self.disable_search_path_heuristics {
-            Arc::new(Vec::new())
-        } else {
-            self.fallback_search_path.for_directory(directory)
-        }
+        self.heuristic_fallback_search_path().map_or_else(
+            || Arc::new(Vec::new()),
+            |fallback| fallback.for_directory(directory),
+        )
     }
 
     pub fn site_package_path(&self) -> impl Iterator<Item = &PathBuf> + Clone {
@@ -1291,11 +1296,8 @@ impl ConfigFile {
         if !self.disable_search_path_heuristics {
             result.push(ImportLookupPathPart::ImportRoot(self.import_root.as_ref()));
         }
-        let fallback_search_path = (!self.disable_search_path_heuristics).then(|| {
-            ImportLookupPathPart::FallbackSearchPath(
-                &self.fallback_search_path,
-                origin.and_then(|p| p.parent()),
-            )
+        let fallback_search_path = self.heuristic_fallback_search_path().map(|fallback| {
+            ImportLookupPathPart::FallbackSearchPath(fallback, origin.and_then(|p| p.parent()))
         });
         let (fallback_before_site_packages, fallback_after_site_packages) =
             if self.fallback_search_path.is_last_resort() {
