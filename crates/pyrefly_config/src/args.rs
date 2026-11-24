@@ -980,14 +980,14 @@ mod tests {
         let config = ConfigFile {
             sub_configs: vec![
                 SubConfig {
-                    matches: Glob::new("src/**".to_owned()).unwrap(),
+                    matches: Glob::new("src/**".to_owned()).unwrap().into(),
                     settings: ConfigBase {
                         check_unannotated_defs: Some(false),
                         ..Default::default()
                     },
                 },
                 SubConfig {
-                    matches: Glob::new("src/strict/**".to_owned()).unwrap(),
+                    matches: Glob::new("src/strict/**".to_owned()).unwrap().into(),
                     settings: ConfigBase {
                         errors: Some(ErrorDisplayConfig::new(HashMap::from([
                             (ErrorKind::BadReturn, Severity::Warn),
@@ -1023,7 +1023,7 @@ mod tests {
     fn cli_error_flags_beat_sub_config_pytorch_efficiency_lints() {
         let config = ConfigFile {
             sub_configs: vec![SubConfig {
-                matches: Glob::new("src/**".to_owned()).unwrap(),
+                matches: Glob::new("src/**".to_owned()).unwrap().into(),
                 settings: ConfigBase {
                     pytorch_efficiency_lints: Some(true),
                     ..Default::default()

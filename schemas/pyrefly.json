@@ -415,8 +415,15 @@
                 "required": ["matches"],
                 "properties": {
                   "matches": {
-                    "description": "A filesystem glob pattern detailing which files the config applies to.",
-                    "type": "string"
+                    "description": "A filesystem glob or a non-empty list of globs. The sub-config applies if any glob matches.",
+                    "anyOf": [
+                      { "type": "string" },
+                      {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "minItems": 1
+                      }
+                    ]
                   }
                 }
               }
