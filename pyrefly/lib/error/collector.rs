@@ -541,12 +541,8 @@ impl ErrorCollector {
                 MalformedReason::UnterminatedBracket => format!("Unterminated `[` in `# {tool}: ignore[...]` error-code list"),
                 MalformedReason::EmptyBracket => format!("Empty error-code list in `# {tool}: ignore[]`"),
             };
-            self.error_builder(
-                malformed.range(self.module_info.lined_buffer()),
-                ErrorKind::InvalidIgnoreComment,
-                msg,
-            )
-            .emit();
+            self.error_builder(malformed.range(), ErrorKind::InvalidIgnoreComment, msg)
+                .emit();
         }
     }
 
@@ -720,10 +716,13 @@ impl ErrorCollector {
                 continue;
             }
             if error.error_kind() == ErrorKind::InvalidIgnoreComment {
-                let malformed = module_info.ignore().malformed().iter().find(|malformed| {
-                    malformed.range(module_info.lined_buffer()) == error.range()
-                }).expect("invalid-ignore-comment diagnostics originate from parsed malformed comments");
-                if !error_config.enabled_ignores.contains(&malformed.tool()) {
+                let malformed = module_info.ignore().malformed();
+                let index = malformed.binary_search_by_key(&(error.range().start(), error.range().end()), |comment| (comment.range().start(), comment.range().end()))
+                    .expect("invalid-ignore-comment diagnostics originate from parsed malformed comments");
+                if !error_config
+                    .enabled_ignores
+                    .contains(&malformed[index].tool())
+                {
                     continue;
                 }
             }
