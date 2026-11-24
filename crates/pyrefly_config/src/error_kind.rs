@@ -841,6 +841,7 @@ impl ErrorKind {
             || matches!(
                 self,
                 ErrorKind::Deprecated
+                    | ErrorKind::InvalidIgnoreComment
                     | ErrorKind::RedundantCast
                     | ErrorKind::UnnecessaryTypeConversion
                     | ErrorKind::UnusedImport
@@ -913,8 +914,7 @@ mod tests {
         assert_eq!(ErrorKind::RevealType.default_severity(), Severity::Info);
         assert!(ErrorKind::RevealType.is_soft());
         assert!(!ErrorKind::BadArgumentType.is_soft());
-        // Bug: malformed ignore syntax must not explain an error-derived type.
-        assert!(!ErrorKind::InvalidIgnoreComment.is_soft());
+        assert!(ErrorKind::InvalidIgnoreComment.is_soft());
     }
 
     #[test]

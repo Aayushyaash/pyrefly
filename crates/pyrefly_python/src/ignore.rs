@@ -570,6 +570,16 @@ impl MalformedIgnore {
     pub fn reason(&self) -> MalformedReason {
         self.reason
     }
+
+    /// The exact comment fragment, including its leading `#`.
+    pub fn range(&self, buffer: &LinedBuffer) -> TextRange {
+        let start = buffer.line_start(self.comment_line);
+        TextRange::new(
+            start + TextSize::try_from(self.comment_offset).expect("comment offset fits in u32"),
+            start
+                + TextSize::try_from(self.comment_end_offset).expect("comment offset fits in u32"),
+        )
+    }
 }
 
 /// The result of parsing a single `#`-delimited comment fragment.

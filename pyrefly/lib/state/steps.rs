@@ -530,6 +530,7 @@ impl Step {
         let module_ranges = (load.error_style != ErrorStyle::Never).then(|| {
             let module_ranges = ModuleRanges::compute(&module, &load.module_info);
             errors.add_misplaced_ignores(&module_ranges.misplaced_ignore_all);
+            errors.add_invalid_ignores();
             Arc::new(module_ranges)
         });
         Arc::new(ParsedModule::new(

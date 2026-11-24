@@ -12,25 +12,25 @@ use crate::test::util::TestEnv;
 use crate::testcase;
 
 testcase!(
-    bug = "Malformed ignore diagnostics are missing from the expectation harness",
     test_invalid_ignore_syntax_collection,
     r#"
-x: int = ""  # pyrefly: ignoree  # E: is not assignable
-x = 1  # pyrefly: ignore[]
-x = 1  # pyrefly: ignore[,]
-x = 1  # pyrefly: ignore[bad-assignment
+x: int = ""  # pyrefly: ignoree  # E: is not assignable  # E: Invalid ignore comment
+x = 1  # pyrefly: ignore[]  # E: Empty error-code list
+x = 1  # pyrefly: ignore[,]  # E: Empty error-code list
+x = 1  # pyrefly: ignore[bad-assignment  # E: Unterminated
 "#,
 );
 
 testcase!(
+    bug = "Type-comment identifiers starting with ignore are linted as typos",
     test_ignore_prefix_type_alias_comments,
     r#"
 ignore1 = int
 ignoree = int
 ignored_type = int
-x = 1  # type:ignore1
-x = 1  # type: ignoree
-x = 1  # type: ignored_type
+x = 1  # type:ignore1  # E: Invalid ignore comment
+x = 1  # type: ignoree  # E: Invalid ignore comment
+x = 1  # type: ignored_type  # E: Invalid ignore comment
 "#,
 );
 
@@ -200,7 +200,7 @@ testcase!(
     test_pyrefly_suppression_typed_empty,
     r#"
 def foo() -> str:
-  # pyrefly: ignore[]
+  # pyrefly: ignore[]  # E: Empty error-code list
   return 1 # E: Returned type `Literal[1]` is not assignable to declared return type `str`
 "#,
 );

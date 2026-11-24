@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use dupe::Dupe;
 use pyrefly_config::error_kind::ErrorKind;
+use pyrefly_python::ignore::MalformedReason;
 use pyrefly_python::ignore::Suppression;
 use pyrefly_python::ignore::SuppressionEffect;
 use pyrefly_python::ignore::Tool;
@@ -527,6 +528,28 @@ impl ErrorCollector {
         }
     }
 
+    /// Record syntax diagnostics independently of the current enabled tools.
+    pub(crate) fn add_invalid_ignores(&self) {
+        for malformed in self.module_info.ignore().malformed() {
+            let tool = malformed.tool();
+            let msg = match malformed.reason() {
+                MalformedReason::UnknownDirective => match tool {
+                    Tool::Pyre => "Invalid ignore comment; did you mean `# pyre-ignore`, `# pyre-fixme`, or `# pyre: ignore`?".to_owned(),
+                    Tool::Mypy => "Invalid ignore comment; did you mean `# mypy: ignore-errors`?".to_owned(),
+                    _ => format!("Invalid ignore comment; did you mean `# {tool}: ignore` or `# {tool}: ignore[code]`?"),
+                },
+                MalformedReason::UnterminatedBracket => format!("Unterminated `[` in `# {tool}: ignore[...]` error-code list"),
+                MalformedReason::EmptyBracket => format!("Empty error-code list in `# {tool}: ignore[]`"),
+            };
+            self.error_builder(
+                malformed.range(self.module_info.lined_buffer()),
+                ErrorKind::InvalidIgnoreComment,
+                msg,
+            )
+            .emit();
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.errors.lock().is_empty()
     }
@@ -696,10 +719,18 @@ impl ErrorCollector {
                 }
                 continue;
             }
-            // Disabled diagnostics do not use suppressions.
-            // A `misplaced-ignore` error is about a suppression comment, so the fix is to
-            // move or remove the comment rather than to suppress the error.
+            if error.error_kind() == ErrorKind::InvalidIgnoreComment {
+                let malformed = module_info.ignore().malformed().iter().find(|malformed| {
+                    malformed.range(module_info.lined_buffer()) == error.range()
+                }).expect("invalid-ignore-comment diagnostics originate from parsed malformed comments");
+                if !error_config.enabled_ignores.contains(&malformed.tool()) {
+                    continue;
+                }
+            }
+            // Disabled diagnostics do not use suppressions. Ignore-comment diagnostics
+            // bypass whole-file, per-line and multi-line string suppression together.
             let effect = if severity == Severity::Ignore
+                || error.error_kind().is_unsuppressable()
                 || error.error_kind() == ErrorKind::MisplacedIgnore
             {
                 SuppressionEffect::None
