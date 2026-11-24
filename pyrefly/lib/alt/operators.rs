@@ -1161,6 +1161,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                                     &[],
                                     errors,
                                     Some(&context),
+                                    true,
                                 ) {
                                     self.check_dunder_bool_is_callable(&ret, x.range, errors);
                                     self.heap.mk_class_type(self.stdlib.bool().clone())
@@ -1249,28 +1250,17 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     self.call_method_or_error(t, method, x.range, &[], &[], errors, Some(&context))
                 }
                 Type::ClassDef(_) | Type::Type(_) => self
-                    .type_of_magic_dunder_attr(
+                    .call_magic_dunder_method(
                         t,
                         method,
                         x.range,
+                        &[],
+                        &[],
                         errors,
                         Some(&context),
-                        "Expr::unop_infer",
                         // Operator lookup must not use __getattr__ or __getattribute__.
                         false,
                     )
-                    .map(|callee| {
-                        self.record_resolved_trace(x.range, &callee);
-                        self.make_call_target_and_call(
-                            callee,
-                            method,
-                            x.range,
-                            &[],
-                            &[],
-                            errors,
-                            Some(&context),
-                        )
-                    })
                     .unwrap_or_else(unsupported),
                 Type::Literal(lit) if let Lit::Enum(lit_enum) = &lit.value => self
                     .call_method_or_error(

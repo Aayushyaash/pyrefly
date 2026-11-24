@@ -3838,6 +3838,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     &[],
                     errors,
                     Some(&|| ErrorContext::Index(self.for_display(receiver.clone()))),
+                    true,
                 ) {
                     return result;
                 }
@@ -5023,6 +5024,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 &[],
                 errors,
                 Some(&|| ErrorContext::Index(self.for_display(class_ty.clone()))),
+                true,
             )
         } else {
             None

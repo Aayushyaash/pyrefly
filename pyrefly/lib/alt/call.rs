@@ -1249,7 +1249,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         }
     }
 
-    pub fn make_call_target_and_call(
+    fn make_call_target_and_call(
         &self,
         callee_ty: Type,
         method_name: &Name,
@@ -1294,6 +1294,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         keywords: &[CallKeyword],
         errors: &ErrorCollector,
         context: Option<&dyn Fn() -> ErrorContext>,
+        allow_getattr_fallback: bool,
     ) -> Option<Type> {
         let callee_ty = self.type_of_magic_dunder_attr(
             ty,
@@ -1302,7 +1303,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             errors,
             context,
             "Expr::call_method",
-            true,
+            allow_getattr_fallback,
         )?;
         // Record the method type for hover support
         self.record_resolved_trace(range, &callee_ty);

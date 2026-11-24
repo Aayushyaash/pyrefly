@@ -599,6 +599,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 kws,
                 errors,
                 None,
+                true,
             );
             ret.unwrap_or_else(|| ty.clone())
         });

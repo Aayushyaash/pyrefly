@@ -193,6 +193,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             &[],
             &silent_errors,
             None,
+            true,
         )
             // Strict subtype of `int`: excludes plain `int` (no gain) and `Any`
             // (`int <: Any`, so `len(x: Any)` stays `int` rather than widening).

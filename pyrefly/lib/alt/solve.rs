@@ -1160,6 +1160,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                         &[],
                         errors,
                         Some(&context),
+                        true,
                     )
                     .and_then(|iter_ty| self.unwrap_iterable(&iter_ty))
                     .unwrap_or_else(|| {
@@ -1261,6 +1262,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                             &[],
                             errors,
                             Some(&context),
+                            true,
                         )
                     })
                     .unwrap_or_else(|| {
