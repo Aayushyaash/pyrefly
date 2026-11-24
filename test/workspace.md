@@ -98,6 +98,19 @@ $ cd $TMPDIR/workspace && $PYREFLY check --force-exclude packages/a/vendor/m.py 
 [0]
 ```
 
+Bug: `pyrefly check` with no paths checks only the files that `project-includes`
+match, but `--force-exclude` still checks `tests/m.py`.
+
+```scrut
+$ mkdir -p $TMPDIR/includes/src $TMPDIR/includes/tests && cd $TMPDIR/includes && \
+> printf 'project-includes = ["src"]\n' > pyrefly.toml && \
+> for d in src tests; do echo "x: int = ''" > $d/m.py; done && \
+> $PYREFLY check --force-exclude src/m.py tests/m.py --python-version 3.13.0 --output-format=min-text
+ERROR tests/m.py:1:* (glob)
+ERROR src/m.py:1:* (glob)
+[1]
+```
+
 ## `pyrefly check .` checks the same files as `pyrefly check`
 
 `packages/b` is below `.`, so the root config governs it, the same as in
@@ -298,6 +311,14 @@ No Python files matched pattern `*/workspace/missing/*.py` (glob)
 ```scrut
 $ mkdir -p $TMPDIR/loose/sub && echo 'x =' > $TMPDIR/loose/sub/m.py && \
 > cd $TMPDIR/loose && $PYREFLY check sub --python-version 3.13.0 --output-format=min-text
+ERROR sub/m.py:1:* (glob)
+[1]
+```
+
+With no config, `--force-exclude` skips no file.
+
+```scrut
+$ cd $TMPDIR/loose && $PYREFLY check --force-exclude sub/m.py --python-version 3.13.0 --output-format=min-text
 ERROR sub/m.py:1:* (glob)
 [1]
 ```
