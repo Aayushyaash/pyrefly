@@ -99,10 +99,10 @@ def test_arithmetic_scalar_shapes() -> None:
     assert_shape(x.sub(1.0).shape, (2, 3))
     assert_shape(torch.mul(x, 2.0).shape, (2, 3))
     assert_shape(x.div(2.0).shape, (2, 3))
-    functional = torch.fmod(x, 0.75)  # E: is not assignable to parameter `other`
-    method = x.fmod(2)  # E: is not assignable to parameter `other`
-    assert_shape(functional.shape, (2, 3))  # E: assert_shape
-    assert_shape(method.shape, (2, 3))  # E: assert_shape
+    functional = torch.fmod(x, 0.75)
+    method = x.fmod(2)
+    assert_shape(functional.shape, (2, 3))
+    assert_shape(method.shape, (2, 3))
 
 
 def test_min_max_reject_scalar_operands() -> None:
