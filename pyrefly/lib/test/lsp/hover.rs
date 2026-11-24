@@ -1822,10 +1822,10 @@ from typing import overload
 
 class Matrix:
     @overload
-    def __matmul__(self, other: Matrix) -> Matrix: ...
+    def __matmul__(self, other: "Matrix") -> "Matrix": ...
     @overload
-    def __matmul__(self, other: int) -> Matrix: ...
-    def __matmul__(self, other) -> Matrix: ...
+    def __matmul__(self, other: int) -> "Matrix": ...
+    def __matmul__(self, other) -> "Matrix": ...
 
 lhs = Matrix()
 rhs = Matrix()
@@ -1854,7 +1854,7 @@ lhs @ rhs
 fn hover_over_augmented_assignment_operator_shows_in_place_dunder_name() {
     let code = r#"
 class Counter:
-    def __iadd__(self, other: int) -> Counter:
+    def __iadd__(self, other: int) -> "Counter":
         return self
 
 c = Counter()

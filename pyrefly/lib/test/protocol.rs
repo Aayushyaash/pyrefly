@@ -2990,7 +2990,7 @@ Generic: type[_Generic]
 Protocol: _SpecialForm
 
 class G(Generic[T]): ...  # E: uninitialized
-class P(Protocol):
+class P(Protocol):  # E: `Protocol` is uninitialized
     def f(self) -> int: ...
 class PT(Protocol[T]):  # E: uninitialized
     def f(self, x: T) -> T: ...
@@ -3016,7 +3016,7 @@ class _Protocol: ...
 
 Protocol: type[_Protocol]
 
-class P(Protocol):
+class P(Protocol):  # E: `Protocol` is uninitialized
     def f(self) -> int: ...
 class PT(Protocol[T]):  # E: uninitialized
     def f(self, x: T) -> T: ...

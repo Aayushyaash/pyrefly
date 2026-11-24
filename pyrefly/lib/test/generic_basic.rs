@@ -1087,7 +1087,7 @@ from __future__ import annotations
 class Foo[T]: ...
 
 class Bar:
-    foo = Foo[Bar]()
+    foo = Foo[Bar]()  # E: `Bar` is uninitialized
     foo2 = Foo[UnknownClass]()  # E:
     foo3 = Foo["UnknownClass"]()  # E:
     foo4 = Foo[]()  # E:

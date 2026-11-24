@@ -2591,12 +2591,12 @@ fn env_singleton() -> TestEnv {
         "singleton",
         r#"
 class GlobalInventory:
-    _instance: GlobalInventory | None = None
+    _instance: "GlobalInventory | None" = None
     _initialized: bool = False
     initialization_status: bool
     config_file_inventory: dict[str, int]
 
-    def __new__(cls) -> GlobalInventory:
+    def __new__(cls) -> "GlobalInventory":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         assert cls._instance is not None

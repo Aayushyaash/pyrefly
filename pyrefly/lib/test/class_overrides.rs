@@ -1594,12 +1594,12 @@ testcase!(
     r#"
 class A:
     @staticmethod
-    def f() -> A | None:
+    def f() -> "A | None":
         return A()
 
 class B(A):
     @staticmethod
-    def f() -> B:
+    def f() -> "B":
         return B()
     "#,
 );
@@ -1622,12 +1622,12 @@ testcase!(
     test_override_instance_method_with_staticmethod_2,
     r#"
 class A:
-    def f(self) -> A:
+    def f(self) -> "A":
         return A()
 
 class B(A):
     @staticmethod
-    def f() -> B:
+    def f() -> "B":
         return B()
     "#,
 );

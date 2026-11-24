@@ -924,7 +924,7 @@ testcase!(
 from typing import TypedDict, assert_type
 class TD0(TypedDict):
     x: int
-    y: TD1
+    y: "TD1"
 class TD1(TypedDict):
     x: int
     y: TD0

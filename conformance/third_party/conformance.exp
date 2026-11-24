@@ -1547,6 +1547,17 @@
   "annotations_forward_refs.py": [
     {
       "code": -2,
+      "column": 7,
+      "concise_description": "`ClassA` is uninitialized",
+      "description": "`ClassA` is uninitialized",
+      "line": 22,
+      "name": "unbound-name",
+      "severity": "error",
+      "stop_column": 13,
+      "stop_line": 22
+    },
+    {
+      "code": -2,
       "column": 12,
       "concise_description": "`ClassA` is uninitialized",
       "description": "`ClassA` is uninitialized",
@@ -1753,6 +1764,17 @@
       "severity": "error",
       "stop_column": 16,
       "stop_line": 55
+    },
+    {
+      "code": -2,
+      "column": 26,
+      "concise_description": "`ClassB` is uninitialized",
+      "description": "`ClassB` is uninitialized",
+      "line": 65,
+      "name": "unbound-name",
+      "severity": "error",
+      "stop_column": 32,
+      "stop_line": 65
     },
     {
       "code": -2,

@@ -1289,7 +1289,7 @@ testcase!(
 from typing import Self, assert_type
 
 class C:
-    def __new__(cls) -> C:
+    def __new__(cls) -> "C":
         return object.__new__(cls)
 
     @classmethod
@@ -1752,12 +1752,12 @@ from typing import assert_type, overload
 
 class Path:
     @overload
-    def __new__(cls: "type[AbsPath]", path: str) -> AbsPath: ...
+    def __new__(cls: "type[AbsPath]", path: str) -> "AbsPath": ...
     @overload
-    def __new__(cls: "type[RelPath]", path: str) -> RelPath: ...
+    def __new__(cls: "type[RelPath]", path: str) -> "RelPath": ...
     @overload
-    def __new__(cls: "type[Path]", path: str) -> AbsPath | RelPath: ...
-    def __new__(cls: "type[Path]", path: str) -> Path:
+    def __new__(cls: "type[Path]", path: str) -> "AbsPath | RelPath": ...
+    def __new__(cls: "type[Path]", path: str) -> "Path":
         raise NotImplementedError
 
 class AbsPath(Path): ...
@@ -1776,9 +1776,9 @@ from typing import overload
 
 class Base:
     @overload
-    def __init__(self: Sub, value: int) -> None: ...
+    def __init__(self: "Sub", value: int) -> None: ...
     @overload
-    def __init__(self: Base, value: str) -> None: ...
+    def __init__(self: "Base", value: str) -> None: ...
     def __init__(self, value: int | str):
         pass
 
@@ -1793,8 +1793,8 @@ testcase!(
     test_constructor_subclass_receiver_requires_overload,
     r#"
 class Base:
-    def __new__(cls: "type[Sub]") -> Sub: ...  # E: `__new__` method cls type `type[Sub]` refers to class `Sub`, which is not a superclass of class `Base`
-    def __init__(self: Sub) -> None: ...  # E: `__init__` method self type `Sub` is not a superclass of class `Base`
+    def __new__(cls: "type[Sub]") -> "Sub": ...  # E: `__new__` method cls type `type[Sub]` refers to class `Sub`, which is not a superclass of class `Base`
+    def __init__(self: "Sub") -> None: ...  # E: `__init__` method self type `Sub` is not a superclass of class `Base`
 
 class Sub(Base): ...
     "#,

@@ -440,7 +440,7 @@ testcase!(
     r#"
 class C:
     @classmethod
-    def create(cls) -> C:
+    def create(cls) -> "C":
         return cls.__new__(C)  # E: Argument `type[C]` is not assignable to parameter `cls` with type `type[Self@C]` in function `object.__new__`
 "#,
 );
@@ -450,7 +450,7 @@ testcase!(
     test_self_in_container_pinning,
     r#"
 class C:
-    def foo(self, other: C) -> list:
+    def foo(self, other: "C") -> list:
         xs = [self]
         xs.append(other)  # E: Argument `C` is not assignable to parameter `object` with type `Self@C` in function `list.append`
         return xs
@@ -493,7 +493,7 @@ def deco(fn: _Fn) -> _Fn:
 
 class Parent:
     @deco
-    def merge(self, other: Parent) -> Self:
+    def merge(self, other: "Parent") -> Self:
         return self
 
 class Child(Parent):
@@ -757,9 +757,9 @@ from typing import Self, overload
 
 class C:
     @overload
-    def clone(self, x: int) -> C: ... # E: Overload return type `C` is not assignable to implementation return type `Self@C`
+    def clone(self, x: int) -> "C": ... # E: Overload return type `C` is not assignable to implementation return type `Self@C`
     @overload
-    def clone(self, x: str) -> C: ... # E: Overload return type `C` is not assignable to implementation return type `Self@C`
+    def clone(self, x: str) -> "C": ... # E: Overload return type `C` is not assignable to implementation return type `Self@C`
     def clone(self, x) -> Self: ...
     "#,
 );
@@ -772,7 +772,7 @@ class D:
     def __init__(self: A): pass  # E: `__init__` method self type `A` is not a superclass of class `D`
     def f(self: A): pass  # E: `f` method self type `A` is not a superclass of class `D`
     def g(self: type[A]): pass  # E: `g` method self type `type[A]` refers to class `A`, which is not a superclass of class `D`
-    def h(self: D): pass # Ok
+    def h(self: "D"): pass # Ok
     "#,
 );
 

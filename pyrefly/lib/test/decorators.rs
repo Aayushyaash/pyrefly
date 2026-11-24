@@ -1774,7 +1774,7 @@ class RuntimeProtocol(Protocol):
 
 @total_ordering
 class OrderedClass:
-    def __lt__(self, other: OrderedClass) -> bool: ...
+    def __lt__(self, other: "OrderedClass") -> bool: ...
 
 assert_type(FinalClass, type[FinalClass])
 assert_type(FinalClass(), FinalClass)
@@ -2385,7 +2385,7 @@ class Descriptor:
     @overload
     def __get__(self, obj: None, owner: type[object]) -> str: ...
     @overload
-    def __get__(self, obj: A, owner: type[object]) -> int: ...
+    def __get__(self, obj: "A", owner: type[object]) -> int: ...
     def __get__(self, obj: object | None, owner: type[object]) -> int | str:
         return "class" if obj is None else 1
 

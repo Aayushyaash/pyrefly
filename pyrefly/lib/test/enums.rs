@@ -651,7 +651,7 @@ testcase!(
     r#"
 import enum
 
-class C(C, enum.Enum):  # E: Class `C` inheriting from `C` creates a cycle  # E: Cannot extend final class `C`
+class C(C, enum.Enum):  # E: Class `C` inheriting from `C` creates a cycle  # E: Cannot extend final class `C`  # E: `C` is uninitialized
     a = 1
 "#,
 );

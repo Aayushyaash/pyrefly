@@ -1803,7 +1803,7 @@ testcase!(
     test_self_referential_descriptor_get_no_crash,
     r#"
 class C:
-    def d() -> C: ...  # E: Instance method `d` must accept the instance as its first positional parameter
+    def d() -> "C": ...  # E: Instance method `d` must accept the instance as its first positional parameter
     @d  # E: Expected 0 positional arguments, got 1 in function `C.d`
     def __get__():
         pass
@@ -1962,7 +1962,7 @@ testcase!(
     test_self_referential_descriptor_set_no_crash,
     r#"
 class C:
-    def d() -> C: ...  # E: Instance method `d` must accept the instance as its first positional parameter
+    def d() -> "C": ...  # E: Instance method `d` must accept the instance as its first positional parameter
     @d  # E: Expected 0 positional arguments, got 1 in function `C.d`
     def __get__():
         pass

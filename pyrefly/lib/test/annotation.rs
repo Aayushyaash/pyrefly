@@ -259,11 +259,10 @@ class A: ...
 );
 
 testcase!(
-    bug = "Function annotations routed through legacy tparam lookup miss unquoted forward refs",
     test_unquoted_function_annotation_forward_reference_before_py314,
     TestEnv::new_with_version(PythonVersion::new(3, 13, 0)),
     r#"
-def f(x: Alias) -> Alias:
+def f(x: Alias) -> Alias:  # E: `Alias` is uninitialized  # E: `Alias` is uninitialized
     return x
 
 type Alias = int

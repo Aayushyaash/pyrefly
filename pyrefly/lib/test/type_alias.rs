@@ -1019,7 +1019,7 @@ testcase!(
 from typing import TypeVar, Generic
 class C:
     @classmethod
-    def make(cls) -> C:
+    def make(cls) -> "C":
         raise NotImplementedError()
 T = TypeVar("T", bound=C)
 class UseC(Generic[T]):

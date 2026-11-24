@@ -853,7 +853,7 @@ from typing import assert_type, overload
 
 class A:
     @overload
-    def B(self, x: int) -> B: ...
+    def B(self, x: int) -> B: ...  # E: `B` is uninitialized
     @overload
     def B(self, x: str) -> B: ...  # E: Expected a type form, got instance of `(self: Self@A, x: int) -> B`
     def B(self, x):
