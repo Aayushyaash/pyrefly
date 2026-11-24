@@ -1184,6 +1184,7 @@ mod tests {
     use pyrefly_config::error_kind::Severity;
     use pyrefly_python::ast::Ast;
     use pyrefly_python::ignore::Ignore;
+    use pyrefly_python::ignore::Tool;
     use pyrefly_python::module::Module;
     use pyrefly_python::module_name::ModuleName;
     use pyrefly_python::module_path::ModulePath;
@@ -1331,11 +1332,11 @@ def f() -> int:
                 assert_eq!(collected.disabled.len(), 1);
                 let unused = errors.collect_unused_ignore_errors(&collected);
                 assert_eq!(unused.len(), 1, "{preset:?}: {comment}");
-                let (_, borrowed_unused) = errors.collect_error_refs_with_unused_ignores();
+                let (_, borrowed_unused) = errors.collect_error_refs_with_ignore_diagnostics();
                 assert_eq!(borrowed_unused.len(), 1);
                 assert_eq!(
                     errors
-                        .collect_unused_ignore_errors_for_display(&collected)
+                        .collect_ignore_diagnostics_for_display(&collected)
                         .ordinary
                         .len(),
                     1,
@@ -1378,7 +1379,7 @@ def f() -> int:
             assert_eq!(collected.suppressed[0].severity(), severity);
             assert!(collected.disabled.is_empty());
             assert!(errors.collect_unused_ignore_errors(&collected).is_empty());
-            let (_, borrowed_unused) = errors.collect_error_refs_with_unused_ignores();
+            let (_, borrowed_unused) = errors.collect_error_refs_with_ignore_diagnostics();
             assert!(borrowed_unused.is_empty());
         }
     }
@@ -1400,7 +1401,7 @@ value: int = f(0)  # pyrefly: ignore[bad-assignment, bad-argument-type]
         let collected = errors.collect_errors();
         let unused = errors.collect_unused_ignore_errors(&collected);
         assert_eq!(unused.len(), 1);
-        let (_, borrowed_unused) = errors.collect_error_refs_with_unused_ignores();
+        let (_, borrowed_unused) = errors.collect_error_refs_with_ignore_diagnostics();
         assert_eq!(borrowed_unused.len(), 1);
         let serialized = unused
             .iter()
@@ -1813,6 +1814,105 @@ def f(some_condition: bool):
         let collected = errors.collect_errors();
         let unused = errors.collect_unused_ignore_errors(&collected);
         assert!(unused.is_empty());
+    }
+
+    #[test]
+    fn test_invalid_ignore_lenient_suppression() {
+        // Bug: empty entries no longer retain their original suppression effects.
+        for comment in [
+            "type: ignore[]",
+            "type: ignore[,]",
+            "type: ignore[",
+            "pyre-ignore[]",
+            "pyre-fixme[ , ]",
+            "type: ignore[pyrefly:bad-return,]",
+        ] {
+            let contents = format!("x: int = \"\"  # {comment}\n");
+            let (errors, _tdir) = get_errors_with_config(&contents, |config| {
+                config.root.enabled_ignores = Some(Tool::all());
+            });
+            assert!(errors.collect_errors().suppressed.is_empty(), "{comment}");
+            assert!(
+                errors
+                    .collect_display_errors_with_ignore_diagnostics()
+                    .iter()
+                    .any(|e| { e.error_kind() == ErrorKind::BadAssignment }),
+                "{comment}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_invalid_ignore_duplicate_unused() {
+        // Bug: an unterminated list also produces an unused-ignore diagnostic.
+        let (errors, _tdir) =
+            get_errors_with_config("x = 1  # pyrefly: ignore[bad-assignment\n", |config| {
+                config
+                    .root
+                    .errors
+                    .get_or_insert_with(Default::default)
+                    .set_error_severity(ErrorKind::UnusedIgnore, Severity::Error);
+            });
+        let display = errors.collect_display_errors_with_ignore_diagnostics();
+        assert_eq!(display.len(), 2);
+        assert!(
+            display
+                .iter()
+                .any(|e| e.error_kind() == ErrorKind::UnusedIgnore)
+        );
+    }
+
+    #[test]
+    fn test_invalid_ignore_ambiguous_type_comment() {
+        // Bug: a legitimate type identifier beginning with `ignore` is linted.
+        let (errors, _tdir) = get_errors("ignored_type = int\nx = 1  # type: ignored_type\n");
+        let display = errors.collect_display_errors_with_ignore_diagnostics();
+        assert_eq!(display.len(), 1);
+        assert_eq!(display[0].error_kind(), ErrorKind::InvalidIgnoreComment);
+    }
+
+    #[test]
+    fn test_invalid_ignore_newline_ranges_and_fstring() {
+        for newline in ["\n", "\r\n", "\r"] {
+            let contents = [
+                "x = f\"\"\"start  # pyrefly: ignore",
+                "{1  # pyrefly: ignoree",
+                "}",
+                "end\"\"\"  # pyrefly: ignore",
+            ]
+            .join(newline);
+            let (errors, _tdir) = get_errors(&contents);
+            let display = errors.collect_display_errors_with_ignore_diagnostics();
+            assert_eq!(display.len(), 1, "{newline:?}: {display:?}");
+            assert_eq!(display[0].error_kind(), ErrorKind::InvalidIgnoreComment);
+            assert_eq!(
+                display[0].module().code_at(display[0].range()),
+                "# pyrefly: ignoree"
+            );
+        }
+    }
+
+    #[test]
+    fn test_invalid_ignore_fragment_ranges() {
+        for newline in ["\n", "\r\n", "\r"] {
+            let contents = format!(
+                "# pyrefly: ignore[bad-assignment{newline}ä = 1  # pyrefly: ignoree  # pyrefly: ignore[]{newline}"
+            );
+            let (errors, _tdir) = get_errors(&contents);
+            let display = errors.collect_display_errors_with_ignore_diagnostics();
+            assert_eq!(display.len(), 3, "{newline:?}: {display:?}");
+            assert_eq!(
+                display
+                    .iter()
+                    .map(|e| e.module().code_at(e.range()))
+                    .collect::<Vec<_>>(),
+                [
+                    "# pyrefly: ignore[bad-assignment",
+                    "# pyrefly: ignoree  ",
+                    "# pyrefly: ignore[]"
+                ]
+            );
+        }
     }
 
     #[test]

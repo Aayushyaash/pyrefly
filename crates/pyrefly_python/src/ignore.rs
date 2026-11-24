@@ -1137,9 +1137,17 @@ pub fn misplaced_ignore_errors(
 
 #[cfg(test)]
 mod tests {
+    use enum_iterator::all;
     use pyrefly_util::prelude::SliceExt;
 
     use super::*;
+
+    #[test]
+    fn test_tool_name_round_trip() {
+        for tool in all::<Tool>() {
+            assert_eq!(Tool::from_comment(&tool.to_string()), Some(tool));
+        }
+    }
 
     #[test]
     fn test_parse_ignores() {
@@ -1453,6 +1461,45 @@ x = """
         not_directive("pyrefly: see ticket");
         not_directive("pyrefly: ignore-errors");
         not_directive("pyre-ignore-all-errors");
+    }
+
+    #[test]
+    fn test_empty_entries_suppression_effects() {
+        // Bug: dropping empty entries removes Type/Pyre suppression and warning caps.
+        let line = LineNumber::default();
+        for comment in [
+            "type: ignore[]",
+            "type: ignore[,]",
+            "type: ignore[",
+            "pyre-ignore[]",
+        ] {
+            let ignore = Ignore::new(&format!("x = 1  # {comment}"));
+            for policy in [
+                TypeIgnoreUnknownTagBehavior::Suppress,
+                TypeIgnoreUnknownTagBehavior::DowngradeToWarning,
+                TypeIgnoreUnknownTagBehavior::NoEffect,
+            ] {
+                assert_eq!(
+                    ignore.suppression_effect(line, "bad-assignment", &Tool::all(), policy),
+                    SuppressionEffect::None,
+                    "{comment}: {policy:?}"
+                );
+            }
+        }
+        let ignore = Ignore::new("x = 1  # type: ignore[pyrefly:bad-return,]");
+        assert_eq!(
+            ignore.get(&line).unwrap()[0].error_codes(),
+            &["pyrefly:bad-return"]
+        );
+        assert_eq!(
+            ignore.suppression_effect(
+                line,
+                "bad-assignment",
+                &Tool::all(),
+                TypeIgnoreUnknownTagBehavior::DowngradeToWarning
+            ),
+            SuppressionEffect::None
+        );
     }
 
     #[test]
