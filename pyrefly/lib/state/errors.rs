@@ -1199,6 +1199,7 @@ mod tests {
     use crate::config::config::ConfigFile;
     use crate::config::finder::ConfigFinder;
     use crate::error::error::ErrorRenderer;
+    use crate::error::style::ErrorStyle;
     use crate::error::suppress::SerializedError;
     use crate::error::suppress::UnusedIgnoreKind;
     use crate::error::suppress::remove_unused_ignores_from_serialized;
@@ -1817,6 +1818,19 @@ def f(some_condition: bool):
     }
 
     #[test]
+    fn test_invalid_ignore_plain_collection() {
+        // Bug: syntax-only ignore diagnostics are missing from ordinary collection.
+        let (errors, _tdir) = get_errors("x = 1  # pyrefly: ignoree\n");
+        assert!(errors.collect_display_errors().is_empty());
+        assert_eq!(
+            errors
+                .collect_display_errors_with_ignore_diagnostics()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
     fn test_invalid_ignore_lenient_suppression() {
         // Bug: empty entries no longer retain their original suppression effects.
         for comment in [
@@ -1912,6 +1926,133 @@ def f(some_condition: bool):
                     "# pyrefly: ignore[]"
                 ]
             );
+        }
+    }
+
+    #[test]
+    fn test_invalid_ignore_dependency_style() {
+        let mut env = TestEnv::new();
+        env.add("main", "import dependency\n");
+        env.add("dependency", "x = 1  # pyrefly: ignoree\n");
+        let (state, handle) = env.to_state();
+        let errors = state.transaction().get_errors([&handle("main")]);
+        assert!(
+            errors
+                .collect_display_errors_with_ignore_diagnostics()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn test_invalid_ignore_generated_unused_filter() {
+        let (errors, _tdir) =
+            get_errors_with_config("# @generated\nx = 1  # pyrefly: ignore\n", |config| {
+                config.root.ignore_errors_in_generated_code = Some(true);
+                config
+                    .root
+                    .errors
+                    .get_or_insert_with(Default::default)
+                    .set_error_severity(ErrorKind::UnusedIgnore, Severity::Error);
+            });
+        assert!(
+            errors
+                .collect_display_errors_with_ignore_diagnostics()
+                .is_empty()
+        );
+        assert!(errors.collect_lsp_errors_with_baselines().0.is_empty());
+        assert!(
+            errors
+                .collect_error_refs_with_ignore_diagnostics()
+                .1
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn test_invalid_ignore_never_dependency_filter() {
+        let mut env = TestEnv::new().enable_unused_ignore_errors();
+        env.add("main", "from dependency import value\nx = value\n");
+        env.add(
+            "dependency",
+            "value = 1  # pyrefly: ignoree  # pyrefly: ignore[bad-assignment]\n",
+        );
+        let state = State::new(env.config_finder(), TEST_THREAD_COUNT);
+        let main = Handle::new(
+            ModuleName::from_str("main"),
+            ModulePath::memory(PathBuf::from("main.py")),
+            SysInfo::default(),
+        );
+        let mut transaction = state.new_transaction(Require::Exports, None);
+        transaction.set_memory(env.get_memory());
+        transaction.run(&[main.dupe()], Require::Everything, None);
+        let dependency = transaction
+            .handles()
+            .into_iter()
+            .find(|handle| handle.module() == ModuleName::from_str("dependency"))
+            .unwrap();
+        assert_eq!(transaction.get_require(&dependency), Some(Require::Exports));
+        assert_eq!(
+            transaction.get_load(&dependency).unwrap().error_style,
+            ErrorStyle::Never
+        );
+        let errors = transaction.get_errors([&main, &dependency]);
+        assert!(
+            errors
+                .collect_display_errors_with_ignore_diagnostics()
+                .is_empty()
+        );
+        assert!(errors.collect_lsp_errors_with_baselines().0.is_empty());
+        assert!(
+            errors
+                .collect_error_refs_with_ignore_diagnostics()
+                .1
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn test_invalid_ignore_unknown_from_error_causality() {
+        for (enabled, comment) in [
+            (false, "# ordinary comment"),
+            (false, "# pyright: ignoree"),
+            (true, "# ordinary comment"),
+            (true, "# pyright: ignoree"),
+        ] {
+            let contents = format!(
+                "from not_a_real_module import foo\nx: int = foo(\n    {comment}\n)\ny = foo(\n    {comment}\n)\n"
+            );
+            let (errors, _tdir) = get_errors_with_config(&contents, |config| {
+                if enabled {
+                    config.root.enabled_ignores = Some(Tool::all());
+                }
+                config
+                    .root
+                    .errors
+                    .get_or_insert_with(Default::default)
+                    .set_error_severity(ErrorKind::UnknownFromError, Severity::Error);
+            });
+            let display = errors.collect_display_errors_with_ignore_diagnostics();
+            for (kind, count) in [
+                (ErrorKind::MissingImport, 1),
+                (ErrorKind::UnknownFromError, 1),
+                (
+                    ErrorKind::InvalidIgnoreComment,
+                    if enabled && comment.contains("ignoree") {
+                        2
+                    } else {
+                        0
+                    },
+                ),
+            ] {
+                assert_eq!(
+                    display
+                        .iter()
+                        .filter(|error| error.error_kind() == kind)
+                        .count(),
+                    count,
+                    "{enabled}, {comment}: {display:?}"
+                );
+            }
         }
     }
 

@@ -913,6 +913,8 @@ mod tests {
         assert_eq!(ErrorKind::RevealType.default_severity(), Severity::Info);
         assert!(ErrorKind::RevealType.is_soft());
         assert!(!ErrorKind::BadArgumentType.is_soft());
+        // Bug: malformed ignore syntax must not explain an error-derived type.
+        assert!(!ErrorKind::InvalidIgnoreComment.is_soft());
     }
 
     #[test]
