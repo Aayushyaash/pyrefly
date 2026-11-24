@@ -1152,10 +1152,6 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
     }
 
     /// Default from `default=`, a positional default, or `default_factory`/`factory`.
-    ///
-    /// Value expressions go through the same check as a function default. A factory
-    /// contributes its return type, which is dropped when it is not assignable to
-    /// the field's upper bounds.
     fn specifier_field_default(
         &self,
         args: &Arguments,
@@ -1187,12 +1183,13 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             .get(&DataclassFieldKeywords::DEFAULT_FACTORY)
             .or_else(|| map.0.get(&DataclassFieldKeywords::FACTORY))?;
         let constructor_callable = self.constructor_to_callable_distributed(factory);
-        let return_ty = constructor_callable
-            .as_ref()
-            .unwrap_or(factory)
-            .callable_return_type(self.heap, self)
-            .unwrap_or_else(|| self.heap.mk_any_implicit());
-        Some(self.field_default_for_type(return_ty, annotated))
+        Some(DataclassFieldDefault::Factory(
+            constructor_callable
+                .as_ref()
+                .unwrap_or(factory)
+                .callable_return_type(self.heap, self)
+                .unwrap_or_else(|| self.heap.mk_any_implicit()),
+        ))
     }
 
     pub fn compute_kw_only_fields_by_class(&self, cls: &Class) -> SmallMap<Class, SmallSet<Name>> {
@@ -1362,9 +1359,6 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 let has_default = force_optional
                     || field_flags.default.is_some()
                     || (field_flags.init_by_name && field_flags.init_by_alias.is_some());
-                // Only the synthesized `__init__` receives a known default type.
-                // `replace` and attrs `assoc` stay optional without it, so a default
-                // that does not match an already-solved class does not error there.
                 let default_ty = has_default.then(|| {
                     field_flags
                         .default

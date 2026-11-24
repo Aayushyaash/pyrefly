@@ -41,16 +41,61 @@ class Generated[T]:
 class FromField[T]:
     x: T = field(default=5)  # E: `int` is not assignable to `T`
 
-@dataclass
-class FromFactory[T]:
-    x: T = field(default_factory=lambda: 5)  # E: `int` is not assignable to `T`
-
 assert_type(Explicit(), Explicit[int])
 assert_type(Generated(), Generated[int])
 assert_type(Generated(5), Generated[int])
 assert_type(Generated("a"), Generated[str])
 assert_type(FromField(), FromField[int])
-assert_type(FromFactory(), FromFactory[int])
+    "#,
+);
+
+testcase!(
+    test_dataclass_inherited_default_type_var,
+    r#"
+from dataclasses import dataclass
+from typing import assert_type
+
+@dataclass
+class Base[T]:
+    x: T
+    y: frozenset[T] = frozenset()
+
+@dataclass
+class Child[S](Base[S]):
+    pass
+
+assert_type(Child(1), Child[int])
+    "#,
+);
+
+testcase!(
+    test_dataclass_default_factory_type_var,
+    r#"
+from dataclasses import dataclass, field
+from typing import assert_type
+
+@dataclass
+class A[T]:
+    x: T
+    y: list[T] = field(default_factory=lambda: [])
+
+assert_type(A(1), A[int])
+    "#,
+);
+
+testcase!(
+    test_dataclass_generic_descriptor_default,
+    r#"
+from dataclasses import dataclass
+from typing import Any
+
+class BadDesc[T]:
+    def __get__(self, obj: Any, owner: Any) -> int: ...
+    def __set__(self, obj: Any, value: str) -> None: ...
+
+@dataclass
+class A[T]:
+    x: BadDesc[T] = BadDesc()  # E: Cannot set field `x` to data descriptor `BadDesc` with inconsistent types
     "#,
 );
 

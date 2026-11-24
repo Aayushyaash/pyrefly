@@ -322,14 +322,6 @@ enum ClassDecoratorResult {
     Kept,
 }
 
-fn contains_int_var(ty: &Type) -> bool {
-    let mut quantifieds = SmallSet::new();
-    ty.collect_quantifieds(&mut quantifieds);
-    quantifieds
-        .iter()
-        .any(|quantified| quantified.kind() == QuantifiedKind::IntVar)
-}
-
 impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
     fn decorator_param_hints(&self, decorators: &[(Type, usize)]) -> Option<DecoratorParamHints> {
         decorators.iter().rev().find_map(|(decorator_ty, _)| {
@@ -1543,7 +1535,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
     /// with the original type as a hint, so the variable can appear in the result.
     /// An incompatible default is reported and replaced with the expected type, so
     /// later calls do not repeat the error. Literals stay explicit.
-    pub(crate) fn infer_checked_default(
+    fn infer_checked_default(
         &self,
         default: &Expr,
         check: Option<(&Type, &dyn Fn() -> TypeCheckContext)>,
@@ -1577,73 +1569,26 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         ty.with_literal_style(LitStyle::Explicit)
     }
 
-    /// Record a field default expression for the synthesized constructor.
-    ///
-    /// Uses [`Self::infer_checked_default`] when the annotation contains a type
-    /// variable. Other defaults keep the inferred type so callers such as
-    /// Pydantic range checks can still see it.
-    pub(crate) fn field_default_for_expr(
+    /// Infer a dataclass field default the same way as a parameter default.
+    pub fn field_default_for_expr(
         &self,
         value: &Expr,
         annotated: Option<&Type>,
         errors: &ErrorCollector,
     ) -> DataclassFieldDefault {
-        let has_type_var = annotated.is_some_and(|ty| {
-            let mut qs = SmallSet::new();
-            ty.collect_quantifieds(&mut qs);
-            !qs.is_empty()
-        });
-        // A literal default of a shape dimension is not a solution of that
-        // dimension, so the synthesized constructor does not solve from it.
-        if annotated.is_some_and(contains_int_var) {
-            return DataclassFieldDefault::Unknown;
-        }
-        let ty = if has_type_var {
-            let tcc = || {
-                TypeCheckContext::of_kind(TypeCheckKind::FunctionParameterDefault(
-                    Name::new_static("default"),
-                ))
-            };
-            self.infer_checked_default(value, annotated.map(|ty| (ty, &tcc as _)), errors)
-        } else {
-            self.expr_infer(value, errors)
+        let tcc = || {
+            TypeCheckContext::of_kind(TypeCheckKind::FunctionParameterDefault(Name::new_static(
+                "default",
+            )))
         };
-        // `infer_checked_default` already applied the upper-bound fallback.
-        // A second assignability check would reject a default that still
-        // contains the annotation's type variable, such as `list[T] = []`.
-        DataclassFieldDefault::from_type(ty)
+        // A default that cannot solve a type variable only needs its inferred type.
+        let check = annotated
+            .filter(|ty| ty.contains_type_variable())
+            .map(|ty| (ty, &tcc as _));
+        DataclassFieldDefault::Value(self.infer_checked_default(value, check, errors))
     }
 
-    /// Record an already-inferred default type, including a `default_factory` return.
-    ///
-    /// A type that is not assignable to the annotation's upper bounds is stored
-    /// as unknown, so constructing the class does not repeat that error.
-    pub(crate) fn field_default_for_type(
-        &self,
-        ty: Type,
-        annotated: Option<&Type>,
-    ) -> DataclassFieldDefault {
-        if ty.is_any() || annotated.is_some_and(contains_int_var) {
-            return DataclassFieldDefault::Unknown;
-        }
-        if let Some(expected) = annotated {
-            let mut qs = SmallSet::new();
-            expected.collect_quantifieds(&mut qs);
-            if !qs.is_empty() {
-                let owner = Owner::new();
-                let upper_mp = qs
-                    .iter()
-                    .map(|q| (*q, owner.push(q.upper_bound(self, self.heap))))
-                    .collect();
-                let upper_ty = expected.clone().subst(&upper_mp);
-                if !self.is_subset_eq(&ty, &upper_ty) {
-                    return DataclassFieldDefault::Unknown;
-                }
-            }
-        }
-        DataclassFieldDefault::Known(ty.with_literal_style(LitStyle::Explicit))
-    }
-
+    /// Determine the type and required-ness of a parameter.
     fn get_param_type_and_requiredness(
         &self,
         name: &Identifier,

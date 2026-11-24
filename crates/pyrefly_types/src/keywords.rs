@@ -20,7 +20,7 @@ use crate::env::TypeEnv;
 use crate::function::FuncMetadata;
 use crate::function::FunctionKind;
 use crate::literal::Lit;
-use crate::literal::LitStyle;
+use crate::quantified::QuantifiedKind;
 use crate::tuple::Tuple;
 use crate::types::CalleeKind;
 use crate::types::Type;
@@ -165,8 +165,7 @@ impl VisitMut<Type> for ConverterMap {
 pub struct DataclassFieldKeywords {
     pub init: bool,
     /// This field's default, if any. Note that this is derived from the various
-    /// default-related parameters but does not correspond directly to any of them.
-    /// `Unknown` means the field is optional and the value's type was not recorded.
+    /// default-related parameters but does not correspond directly to any of them
     pub default: Option<DataclassFieldDefault>,
     /// None means that kw_only was not explicitly set
     pub kw_only: Option<bool>,
@@ -240,54 +239,46 @@ impl DataclassFieldKeywords {
 }
 
 /// A dataclass field default.
-///
-/// `Unknown` replaces the old implicit-`Any` sentinel. `Any` is a real type, so
-/// using it for both "we know the default is `Any`" and "a default exists but
-/// its type was not recorded" made call solving treat every default as `Any`.
 #[derive(
     Debug, Clone, PartialEq, Eq, TypeEq, TypeOrd, PartialOrd, Ord, Hash, Visit, VisitMut
 )]
 pub enum DataclassFieldDefault {
-    /// The field is optional, and the default's type is not available for solving.
+    /// The field is optional, but the default's type is not known.
     Unknown,
-    /// The field is optional, and this type may solve a type variable.
-    Known(Type),
+    /// A default value of this type. Like a function parameter default, it may solve type
+    /// variables in the field's type.
+    Value(Type),
+    /// A default factory that returns this type. It does not solve type variables, because the
+    /// factory is inferred without the field's type as context.
+    Factory(Type),
 }
 
 impl DataclassFieldDefault {
-    pub fn from_type(ty: Type) -> Self {
-        if ty.is_any() {
-            Self::Unknown
-        } else {
-            Self::Known(ty)
-        }
-    }
-
     /// The recorded type, when there is one.
     pub fn as_type(&self) -> Option<&Type> {
         match self {
-            Self::Known(ty) => Some(ty),
+            Self::Value(ty) | Self::Factory(ty) => Some(ty),
             Self::Unknown => None,
         }
     }
 
-    /// Convert a stored default into a parameter requirement.
-    ///
-    /// A known type is passed to call solving only when the parameter type
-    /// contains a type variable. Other defaults stay optional without a value,
-    /// so the signature still displays `...`.
+    /// A default value is passed to call solving only when it can solve a type variable in the
+    /// parameter type.
     pub fn to_required(&self, param_ty: &Type) -> Required {
-        let Self::Known(ty) = self else {
+        let Self::Value(ty) = self else {
             return Required::Optional(None);
         };
         let mut quantifieds = SmallSet::new();
         param_ty.collect_quantifieds(&mut quantifieds);
-        if quantifieds.is_empty() {
+        // A literal default of a shape dimension is not a solution of that dimension.
+        if quantifieds.is_empty()
+            || quantifieds
+                .iter()
+                .any(|q| q.kind() == QuantifiedKind::IntVar)
+        {
             Required::Optional(None)
         } else {
-            Required::Optional(Some(DefaultValue::new(
-                ty.clone().with_literal_style(LitStyle::Explicit),
-            )))
+            Required::Optional(Some(DefaultValue::new(ty.clone())))
         }
     }
 }

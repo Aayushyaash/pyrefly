@@ -695,6 +695,7 @@ impl ClassField {
                     }
                     _ => descriptor.cls.visit_mut(f),
                 }
+                descriptor.initialization.visit_mut(f);
                 Self(
                     ClassFieldInner::Descriptor {
                         ty,
@@ -751,11 +752,13 @@ impl ClassField {
             } => {
                 let mut ty = ty.clone();
                 f(&mut ty);
+                let mut initialization = initialization.clone();
+                initialization.visit_mut(f);
                 Self(
                     ClassFieldInner::ClassAttribute {
                         ty,
                         annotation: annotation.clone(),
-                        initialization: initialization.clone(),
+                        initialization,
                         read_only_reason: read_only_reason.clone(),
                         descriptor_union: *descriptor_union,
                         is_classvar: *is_classvar,
@@ -1755,6 +1758,10 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         // consistency check can see it.
         let mut descriptor_is_override = false;
         let mut inherited_instance_var = false;
+        // A plain assignment in a dataclass, such as `x: T = 5`, keeps `ClassBody(None)`,
+        // which descriptor detection depends on. If the field is not a descriptor, this
+        // initialization records the value so that it can solve `T` in the synthesized `__init__`.
+        let mut plain_default_initialization = None;
 
         let (
             initialization,
@@ -2073,30 +2080,19 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 } else {
                     None
                 };
-                // A plain assignment such as `x: T = 5` is not a field specifier.
-                // Record the value when the annotation has a type variable, so the
-                // synthesized constructor can solve it. Other assignments stay
-                // `ClassBody(None)`, which descriptor detection depends on.
-                let mut flags = flags;
                 let annotated = direct_annotation.as_ref().and_then(|a| a.ty.as_ref());
-                let annotation_has_type_var = annotated.is_some_and(|ty| {
-                    let mut quantifieds = SmallSet::new();
-                    ty.collect_quantifieds(&mut quantifieds);
-                    !quantifieds.is_empty()
-                });
                 if flags.is_none()
-                    && annotation_has_type_var
                     && metadata.dataclass_metadata().is_some()
                     && let ExprOrBinding::Expr(e) = value.as_ref()
+                    && annotated.is_some_and(|ty| ty.contains_type_variable())
                 {
-                    let default =
-                        self.field_default_for_expr(e, annotated, &self.error_swallower());
-                    if matches!(default, DataclassFieldDefault::Known(_)) {
-                        flags = Some(DataclassFieldKeywords {
-                            default: Some(default),
-                            ..DataclassFieldKeywords::new()
-                        });
-                    }
+                    let mut kws = annotation_flags
+                        .clone()
+                        .unwrap_or_else(DataclassFieldKeywords::new);
+                    kws.default =
+                        Some(self.field_default_for_expr(e, annotated, &self.error_swallower()));
+                    plain_default_initialization =
+                        Some(ClassFieldInitialization::ClassBody(Some(Box::new(kws))));
                 }
                 let initialization = ClassFieldInitialization::ClassBody(
                     flags
@@ -2751,7 +2747,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                         ClassFieldInner::ClassAttribute {
                             ty,
                             annotation,
-                            initialization,
+                            initialization: plain_default_initialization.unwrap_or(initialization),
                             read_only_reason,
                             descriptor_union,
                             is_classvar: is_class_var,
