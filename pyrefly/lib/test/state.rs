@@ -76,6 +76,62 @@ use crate::types::class::Class;
 use crate::types::types::Type;
 
 #[test]
+fn test_invalid_ignore_enabled_tools_config_reload() {
+    let root = TempDir::new().unwrap();
+    let config_path = root.path().join(ConfigFile::PYREFLY_FILE_NAME);
+    let source_path = root.path().join("main.py");
+    fs::write(
+        &source_path,
+        "x = 1  # pyrefly: ignoree  # pyright: ignoree\n",
+    )
+    .unwrap();
+    let state = State::new(default_config_finder(None), TEST_THREAD_COUNT);
+    let handle = Handle::new(
+        ModuleName::from_str("main"),
+        ModulePath::filesystem(source_path),
+        SysInfo::default(),
+    );
+    for (tools, severity, count) in [
+        ("['pyrefly']", "warn", 1),
+        ("[]", "warn", 0),
+        ("['pyright']", "error", 1),
+        ("['pyrefly', 'pyright']", "hint", 2),
+        ("['pyrefly', 'pyright']", "ignore", 0),
+        ("['pyrefly', 'pyright']", "warn", 2),
+        ("[]", "error", 0),
+    ] {
+        fs::write(
+            &config_path,
+            format!("skip-interpreter-query = true\nenabled-ignores = {tools}\n[errors]\ninvalid-ignore-comment = '{severity}'\n"),
+        )
+        .unwrap();
+        let mut transaction = state.new_committable_transaction(Require::Everything, None);
+        transaction.as_mut().invalidate_config();
+        transaction
+            .as_mut()
+            .run(&[handle.dupe()], Require::Everything, None);
+        let errors = transaction
+            .as_mut()
+            .get_errors([&handle])
+            .collect_lsp_errors_with_baselines()
+            .0;
+        assert_eq!(errors.len(), count, "{tools}, {severity}: {errors:?}");
+        assert!(
+            errors
+                .iter()
+                .all(|error| error.error_kind() == ErrorKind::InvalidIgnoreComment)
+        );
+        for error in errors {
+            assert_eq!(
+                error.severity().label().trim().to_ascii_lowercase(),
+                severity
+            );
+        }
+        state.commit_transaction(transaction, None);
+    }
+}
+
+#[test]
 fn test_use_shape_comments_and_stubs_config_reload() {
     let root = TempDir::new().unwrap();
     let config_path = root.path().join(ConfigFile::PYREFLY_FILE_NAME);

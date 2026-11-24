@@ -1886,6 +1886,32 @@ def f(some_condition: bool):
     }
 
     #[test]
+    fn test_invalid_ignore_tool_and_severity_filters() {
+        for severity in [
+            Severity::Ignore,
+            Severity::Hint,
+            Severity::Warn,
+            Severity::Error,
+        ] {
+            let (errors, _tdir) = get_errors_with_config(
+                "x = 1  # pyrefly: ignoree  # pyright: ignoree\n",
+                |config| {
+                    config
+                        .root
+                        .errors
+                        .get_or_insert_with(Default::default)
+                        .set_error_severity(ErrorKind::InvalidIgnoreComment, severity);
+                },
+            );
+            let display = errors.collect_lsp_errors_with_baselines().0;
+            assert_eq!(display.len(), usize::from(severity != Severity::Ignore));
+            if let Some(error) = display.first() {
+                assert_eq!(error.severity(), severity);
+            }
+        }
+    }
+
+    #[test]
     fn test_invalid_ignore_newline_ranges_and_fstring() {
         for newline in ["\n", "\r\n", "\r"] {
             let contents = [
