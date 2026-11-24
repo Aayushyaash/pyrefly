@@ -100,6 +100,7 @@ use crate::types::function::FuncMetadata;
 use crate::types::function::Function;
 use crate::types::function::PropertyMetadata;
 use crate::types::function::PropertyRole;
+use crate::types::keywords::DataclassFieldDefault;
 use crate::types::keywords::DataclassFieldKeywords;
 use crate::types::keywords::TypeMap;
 use crate::types::literal::Lit;
@@ -1286,7 +1287,7 @@ impl ClassField {
         }
     }
 
-    fn dataclass_flags_of(&self, heap: &TypeHeap) -> DataclassFieldKeywords {
+    fn dataclass_flags_of(&self) -> DataclassFieldKeywords {
         match &self.0 {
             ClassFieldInner::Property { .. } => DataclassFieldKeywords::new(),
             ClassFieldInner::Descriptor { descriptor, .. } => match &descriptor.initialization {
@@ -1294,7 +1295,7 @@ impl ClassField {
                 // An ordinary descriptor assignment has the descriptor instance as its default.
                 ClassFieldInitialization::ClassBody(None) => {
                     let mut kws = DataclassFieldKeywords::new();
-                    kws.default = Some(heap.mk_any_implicit());
+                    kws.default = Some(DataclassFieldDefault::Unknown);
                     kws
                 }
                 ClassFieldInitialization::Method
@@ -1309,7 +1310,7 @@ impl ClassField {
                 ClassFieldInitialization::ClassBody(Some(field_flags)) => (**field_flags).clone(),
                 ClassFieldInitialization::ClassBody(None) => {
                     let mut kws = DataclassFieldKeywords::new();
-                    kws.default = Some(heap.mk_any_implicit());
+                    kws.default = Some(DataclassFieldDefault::Unknown);
                     kws
                 }
                 ClassFieldInitialization::Method
@@ -2054,7 +2055,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                                 ),
                             );
                         } else {
-                            f.default = Some(self.heap.mk_any_implicit());
+                            f.default = Some(DataclassFieldDefault::Unknown);
                         }
                     }
                     // A `@<field>.converter` decorator sets the `__init__` input type like an
@@ -2072,11 +2073,36 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 } else {
                     None
                 };
+                // A plain assignment such as `x: T = 5` is not a field specifier.
+                // Record the value when the annotation has a type variable, so the
+                // synthesized constructor can solve it. Other assignments stay
+                // `ClassBody(None)`, which descriptor detection depends on.
+                let mut flags = flags;
+                let annotated = direct_annotation.as_ref().and_then(|a| a.ty.as_ref());
+                let annotation_has_type_var = annotated.is_some_and(|ty| {
+                    let mut quantifieds = SmallSet::new();
+                    ty.collect_quantifieds(&mut quantifieds);
+                    !quantifieds.is_empty()
+                });
+                if flags.is_none()
+                    && annotation_has_type_var
+                    && metadata.dataclass_metadata().is_some()
+                    && let ExprOrBinding::Expr(e) = value.as_ref()
+                {
+                    let default =
+                        self.field_default_for_expr(e, annotated, &self.error_swallower());
+                    if matches!(default, DataclassFieldDefault::Known(_)) {
+                        flags = Some(DataclassFieldKeywords {
+                            default: Some(default),
+                            ..DataclassFieldKeywords::new()
+                        });
+                    }
+                }
                 let initialization = ClassFieldInitialization::ClassBody(
                     flags
                         .or_else(|| {
                             annotation_flags.take().map(|mut flags| {
-                                flags.default = Some(self.heap.mk_any_implicit());
+                                flags.default = Some(DataclassFieldDefault::Unknown);
                                 flags
                             })
                         })
@@ -3736,7 +3762,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         {
             DataclassMember::NotAField
         } else {
-            let flags = field.dataclass_flags_of(self.heap);
+            let flags = field.dataclass_flags_of();
             if field.is_init_var() {
                 DataclassMember::InitVar(member, flags)
             } else {
@@ -4249,7 +4275,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         &self,
         field: &ClassField,
         name: &Name,
-        default: bool,
+        default: Option<DataclassFieldDefault>,
         kw_only: bool,
         strict: bool,
         converter_param: Option<Type>,
@@ -4283,9 +4309,9 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             ty.clone()
         };
         let param_ty = param_type_transform(param_ty);
-        let required = match default {
-            true => Required::Optional(None),
-            false => Required::Required,
+        let required = match &default {
+            Some(default) => default.to_required(&param_ty),
+            None => Required::Required,
         };
         if kw_only {
             Param::KwOnly(name.clone(), param_ty, required)
