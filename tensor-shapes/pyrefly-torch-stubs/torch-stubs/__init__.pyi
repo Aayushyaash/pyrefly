@@ -4449,6 +4449,14 @@ def matrix_rank[Batch: IntTuple, M: IntVar, N: IntVar](
 @overload
 def where(condition: Tensor[Any]) -> tuple[Tensor, ...]: ...
 @overload
+def where[Shape: IntTuple](
+    condition: Tensor[Shape],
+    input: Tensor[Shape],
+    other: Tensor[Shape],
+    *,
+    out: Tensor | None = None,
+) -> Tensor[Shape]: ...
+@overload
 def where[
     ConditionShape: IntTuple,
     InputShape: IntTuple,

@@ -69,7 +69,6 @@ if TYPE_CHECKING:
     ) -> Tensor[S]:
         selected = torch.where(condition, left, right)
         assert_type(torch.maximum(selected, right), Tensor[S])
-        # E: is not assignable to parameter `input`
         return torch.maximum(torch.where(condition, left, right), right)
 
     def check_symbolic_where[N: IntVar, M: IntVar](
