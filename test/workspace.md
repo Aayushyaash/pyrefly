@@ -98,15 +98,14 @@ $ cd $TMPDIR/workspace && $PYREFLY check --force-exclude packages/a/vendor/m.py 
 [0]
 ```
 
-Bug: `pyrefly check` with no paths checks only the files that `project-includes`
-match, but `--force-exclude` still checks `tests/m.py`.
+`--force-exclude` skips a given file that the includes of its config do not
+match, as `pyrefly check` with no paths does.
 
 ```scrut
 $ mkdir -p $TMPDIR/includes/src $TMPDIR/includes/tests && cd $TMPDIR/includes && \
 > printf 'project-includes = ["src"]\n' > pyrefly.toml && \
 > for d in src tests; do echo "x: int = ''" > $d/m.py; done && \
 > $PYREFLY check --force-exclude src/m.py tests/m.py --python-version 3.13.0 --output-format=min-text
-ERROR tests/m.py:1:* (glob)
 ERROR src/m.py:1:* (glob)
 [1]
 ```

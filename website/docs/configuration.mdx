@@ -229,7 +229,8 @@ or remove `project-excludes`.
     - For a file argument, or a directory argument without a config, the config's
       `project-excludes` do not apply. Pyrefly uses the default excludes and the excludes
       from the flags.
-    - `--force-exclude` skips each argument that the `project-excludes` of its config match.
+    - `--force-exclude` skips each argument that the `project-excludes` of its config match, and
+      each file argument that its `project-includes` do not match.
 - Equivalent configs: `exclude` in Pyright and mypy
 - Notes:
     - While not explicitly part of `project-excludes`, there are several patterns that are
