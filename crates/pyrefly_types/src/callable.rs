@@ -1045,6 +1045,8 @@ mod tests {
     use crate::callable::Params;
     use crate::callable::PrefixParam;
     use crate::callable::Required;
+    use crate::equality::TypeEq;
+    use crate::equality::TypeEqCtx;
     use crate::quantified::AnchorIndex;
     use crate::quantified::Quantified;
     use crate::quantified::QuantifiedAnchor;
@@ -1215,6 +1217,21 @@ mod tests {
         assert_eq!(counts.positional.max, None);
         assert_eq!(counts.keyword.min, 0);
         assert_eq!(counts.keyword.max, None);
+    }
+
+    // Known bug: display-only default edits compare equal during incremental checking.
+    #[test]
+    fn test_display_only_default_equality_after_edit() {
+        let default = DefaultValue {
+            ty: None,
+            display: Some("1".to_owned()),
+        };
+        let changed = DefaultValue {
+            ty: None,
+            display: Some("2".to_owned()),
+        };
+        assert!(default.type_eq(&default.clone(), &mut TypeEqCtx::default()));
+        assert!(default.type_eq(&changed, &mut TypeEqCtx::default()));
     }
 
     #[test]

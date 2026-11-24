@@ -8,6 +8,7 @@
 use std::env;
 use std::path::PathBuf;
 use std::slice;
+use std::sync::Arc;
 
 use lsp_types::Contents;
 use lsp_types::Hover;
@@ -26,6 +27,7 @@ use ruff_text_size::TextSize;
 use crate::lsp::wasm::hover::HoverOptions;
 use crate::lsp::wasm::hover::get_hover;
 use crate::lsp::wasm::hover::get_hover_with_verbosity;
+use crate::state::load::FileContents;
 use crate::state::lsp::FindPreference;
 use crate::state::require::Require;
 use crate::state::state::State;
@@ -4559,6 +4561,63 @@ result = [x for x in x if x in [1]]
         report.contains("__contains__"),
         "Second 'in' should show __contains__ hover, got: {report}"
     );
+}
+
+// Known bug: default edits leave cached imported constructor hovers unchanged.
+#[test]
+fn hover_imported_constructor_after_default_edit() {
+    for retention in [Require::Exports, Require::Everything] {
+        for exported_alias in [false, true] {
+            let mut library = r#"
+from dataclasses import dataclass, field
+
+@dataclass
+class C:
+    x: int = field(default=1)
+"#
+            .to_owned();
+            let caller = if exported_alias {
+                library.push_str("init = C.__init__\n");
+                "from lib import init\ninit\n"
+            } else {
+                "from lib import C\ninit = C.__init__\ninit\n"
+            };
+            let mut env = TestEnv::new().with_default_require_level(retention);
+            env.add_with_path("lib", "lib.py", &library);
+            env.add_with_path("main", "main.py", caller);
+            let (state, handle) = env.to_state();
+            let main = handle("main");
+            let position = TextSize::try_from(caller.rfind("init").unwrap()).unwrap();
+            let before = get_test_report(&state, &main, position);
+            assert!(
+                before
+                    .split_whitespace()
+                    .collect::<String>()
+                    .contains("x:int=1"),
+                "{before}"
+            );
+
+            let mut transaction = state.new_committable_transaction(retention, None);
+            transaction.as_mut().set_memory(vec![(
+                PathBuf::from("lib.py"),
+                Some(Arc::new(FileContents::from_source(
+                    library.replace("default=1", "default=2"),
+                ))),
+            )]);
+            transaction
+                .as_mut()
+                .run(slice::from_ref(&main), Require::Everything, None);
+            state.commit_transaction(transaction, None);
+            let after = get_test_report(&state, &main, position);
+            assert!(
+                after
+                    .split_whitespace()
+                    .collect::<String>()
+                    .contains("x:int=1"),
+                "retention={retention:?}; exported_alias={exported_alias}; {after}"
+            );
+        }
+    }
 }
 
 #[test]
