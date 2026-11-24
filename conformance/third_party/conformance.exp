@@ -1484,6 +1484,17 @@
       "severity": "error",
       "stop_column": 59,
       "stop_line": 66
+    },
+    {
+      "code": -2,
+      "column": 47,
+      "concise_description": "`BadAlias21` is uninitialized",
+      "description": "`BadAlias21` is uninitialized",
+      "line": 66,
+      "name": "unbound-name",
+      "severity": "error",
+      "stop_column": 57,
+      "stop_line": 66
     }
   ],
   "aliases_variance.py": [

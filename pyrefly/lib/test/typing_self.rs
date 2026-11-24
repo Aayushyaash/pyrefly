@@ -541,7 +541,7 @@ testcase!(
     r#"
 from typing import Callable
 
-def concrete_deco(fn: Callable[[MyClass, int], str]) -> Callable[[MyClass, int], str]:
+def concrete_deco(fn: "Callable[[MyClass, int], str]") -> "Callable[[MyClass, int], str]":
     return fn
 
 class MyClass:
@@ -579,7 +579,7 @@ testcase!(
     r#"
 from typing import Callable, assert_type
 
-def generic_deco[T](fn: Callable[[MyClass, int], T]) -> Callable[[MyClass, int], T]:
+def generic_deco[T](fn: "Callable[[MyClass, int], T]") -> "Callable[[MyClass, int], T]":
     return fn
 
 class MyClass:
@@ -599,10 +599,10 @@ testcase!(
     r#"
 from typing import Callable, assert_type, overload
 
-def concrete_int(fn: Callable[[MyClass, int], int]) -> Callable[[MyClass, int], int]:
+def concrete_int(fn: "Callable[[MyClass, int], int]") -> "Callable[[MyClass, int], int]":
     return fn
 
-def concrete_str(fn: Callable[[MyClass, str], str]) -> Callable[[MyClass, str], str]:
+def concrete_str(fn: "Callable[[MyClass, str], str]") -> "Callable[[MyClass, str], str]":
     return fn
 
 class MyClass:
@@ -780,7 +780,7 @@ testcase!(
     test_method_type_of_defining_class_self,
     r#"
 class D:
-    def f(self: type[D]): pass # No error: type[D] where D is the defining class
+    def f(self: "type[D]"): pass # No error: type[D] where D is the defining class
     "#,
 );
 
@@ -809,7 +809,7 @@ class D:
     @classmethod
     def g(cls: type[A]): pass  # E: `g` method cls type `type[A]` refers to class `A`, which is not a superclass of class `D`
     @classmethod
-    def h(cls: type[D]): pass # Ok
+    def h(cls: "type[D]"): pass # Ok
 "#,
 );
 
@@ -820,7 +820,7 @@ testcase!(
 # the diagnostic names the class `Child` that the superclass check compares with `Base`.
 class Base:
     @classmethod
-    def method(cls: type[Child]) -> None:  # E: `method` method cls type `type[Child]` refers to class `Child`, which is not a superclass of class `Base`
+    def method(cls: "type[Child]") -> None:  # E: `method` method cls type `type[Child]` refers to class `Child`, which is not a superclass of class `Base`
         pass
 
 class Child(Base):

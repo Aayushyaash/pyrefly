@@ -143,7 +143,7 @@ class Codec[*Ts]:
         self,
         f: Callable[[*Ts], T],
         inv_f: Callable[[T], tuple[*Ts]],
-    ) -> Map[T, *Ts]:
+    ) -> "Map[T, *Ts]":
         return Map(self, f, inv_f)
 
 class Map[T, *Ts](Codec[T]):

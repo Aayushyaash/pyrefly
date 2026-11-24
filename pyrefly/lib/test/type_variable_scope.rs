@@ -175,7 +175,7 @@ from typing import Any
 def decorate(f) -> Any: ...
 class A[T]:
     @decorate
-    def __init__(self: A[T]): ...  # E: self type cannot reference class type parameter `T`
+    def __init__(self: "A[T]"): ...  # E: self type cannot reference class type parameter `T`
     "#,
 );
 

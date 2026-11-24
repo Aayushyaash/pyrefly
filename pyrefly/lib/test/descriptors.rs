@@ -172,7 +172,7 @@ testcase!(
 from typing import assert_type
 class C:
     @classmethod
-    def foo(cls: type[C]) -> int:
+    def foo(cls: "type[C]") -> int:
         return 42
 def f(c: C):
     assert_type(C.foo(), int)
@@ -1616,10 +1616,10 @@ _StorageT = TypeVar("_StorageT", bound=Storage | None, default=None)
 
 class _CatStorageDescriptor:
     @overload
-    def __get__(self, instance: Cat[None], owner: type[Cat[None]]) -> Storage: ...
+    def __get__(self, instance: "Cat[None]", owner: "type[Cat[None]]") -> Storage: ...
     @overload
     def __get__(
-        self, instance: Cat[StorageT], owner: type[Cat[StorageT]]
+        self, instance: "Cat[StorageT]", owner: "type[Cat[StorageT]]"
     ) -> StorageT: ...
 
     def __get__(self, *args: Any, **kwargs: Any) -> Any: ...
@@ -1644,10 +1644,10 @@ class Polars: ...
 
 class ImplDescriptor:
     @overload
-    def __get__(self, instance: Frame[Polars], owner: Any) -> Literal["polars"]: ...
+    def __get__(self, instance: "Frame[Polars]", owner: Any) -> Literal["polars"]: ...
     @overload
-    def __get__(self, instance: Frame[Pandas], owner: Any) -> Literal["pandas"]: ...
-    def __get__(self, instance: Frame[Any], owner: Any) -> Any: ...
+    def __get__(self, instance: "Frame[Pandas]", owner: Any) -> Literal["pandas"]: ...
+    def __get__(self, instance: "Frame[Any]", owner: Any) -> Any: ...
 
 class Frame[T]:
     impl: ImplDescriptor = ImplDescriptor()
@@ -1939,7 +1939,7 @@ class JitDeco[**P, R](Protocol):
     def __get__(self, obj: None, owner: type, /) -> Self: ...
     @overload
     def __get__[ObjT, **P1, R1](
-        self: JitDeco[Concatenate[ObjT, P1], R1],
+        self: "JitDeco[Concatenate[ObjT, P1], R1]",
         obj: ObjT,
         owner: type | None = None,
         /,

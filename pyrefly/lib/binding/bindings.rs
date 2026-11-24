@@ -3639,6 +3639,7 @@ impl<'a> BindingsBuilder<'a> {
                 match self.lookup_legacy_tparam_from_idx(
                     id,
                     original_idx,
+                    initialized.clone(),
                     has_scoped_type_params,
                     shadows_enclosing_annotation_scope,
                     class_scope_fallback,
@@ -3691,6 +3692,7 @@ impl<'a> BindingsBuilder<'a> {
         &mut self,
         id: LegacyTParamId,
         original_idx: Idx<Key>,
+        initialized: InitializationStatus,
         has_scoped_type_params: bool,
         shadows_enclosing_annotation_scope: bool,
         class_scope_fallback: Option<Idx<Key>>,
@@ -3723,7 +3725,7 @@ impl<'a> BindingsBuilder<'a> {
             id,
             idx,
             tparam_idx,
-            initialized: InitializationStatus::Initialized,
+            initialized,
             class_scope_fallback,
         })
     }

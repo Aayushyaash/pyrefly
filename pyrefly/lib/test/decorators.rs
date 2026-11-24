@@ -2231,7 +2231,7 @@ class A:
     def f(self) -> int:
         return 1
 
-    def use(self, callback: Callable[[A], int] = f) -> int:
+    def use(self, callback: "Callable[[A], int]" = f) -> int:
         return callback(self)
 
     f = classmethod(f)
@@ -2333,7 +2333,7 @@ testcase!(
     r#"
 from typing import Callable, Concatenate, assert_type
 
-def adapt[**P, R](f: Callable[Concatenate[A, P], R]) -> Callable[Concatenate[type[A], P], R]:
+def adapt[**P, R](f: "Callable[Concatenate[A, P], R]") -> "Callable[Concatenate[type[A], P], R]":
     def wrapper(cls: type[A], *args: P.args, **kwargs: P.kwargs) -> R:
         return f(cls(), *args, **kwargs)
     return wrapper
@@ -2565,7 +2565,7 @@ testcase!(
     r#"
 from typing import Callable, overload
 
-def adapt(f: Callable[[A], int]) -> Callable[[type[A]], int]:
+def adapt(f: "Callable[[A], int]") -> "Callable[[type[A]], int]":
     def wrapper(cls: type[A]) -> int:
         return f(cls())
     return wrapper
@@ -3606,7 +3606,7 @@ testcase!(
     r#"
 from typing import assert_type
 
-def helper(cls: type[A], value: int) -> int:
+def helper(cls: "type[A]", value: int) -> int:
     return value
 
 class A:
@@ -4062,7 +4062,7 @@ from typing import Callable, assert_type
 class A:
     def f(self) -> int:
         return 1
-    def use[T](self, marker: T, callback: Callable[[A], int] = f) -> int:
+    def use[T](self, marker: T, callback: "Callable[[A], int]" = f) -> int:
         return callback(self)
     f = classmethod(f)
 

@@ -144,7 +144,7 @@ class ImplementationWeight(Protocol):
 
 class CandidateWeight(Generic[Weight]):
     weight: Weight
-    def __lt__(self, other: CandidateWeight[Weight]) -> bool:
+    def __lt__(self, other: "CandidateWeight[Weight]") -> bool:
         return self.weight < other.weight
     "#,
 );
@@ -162,7 +162,7 @@ class ImplementationWeight(Protocol):
 
 class CandidateWeight(Generic[Weight]):
     weight: Weight
-    def __add__(self, other: CandidateWeight[Weight]) -> Weight:
+    def __add__(self, other: "CandidateWeight[Weight]") -> Weight:
         return self.weight + other.weight
     "#,
 );
@@ -1532,9 +1532,9 @@ class Overloaded:
 class Selected[T]:
     @deprecated("DEPRECATED")
     @overload
-    def __add__(self: Selected[int], other: int) -> int: ...
+    def __add__(self: "Selected[int]", other: int) -> int: ...
     @overload
-    def __add__(self: Selected[str], other: str) -> str: ...
+    def __add__(self: "Selected[str]", other: str) -> str: ...
     def __add__(self, other: int | str) -> int | str:
         return other
 

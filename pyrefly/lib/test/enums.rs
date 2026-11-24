@@ -889,7 +889,7 @@ class classproperty[_TClass, _TReturnType]:
 class Foo(IntEnum):
     X = 1
     @classproperty
-    def Y(cls) -> list[Foo]:
+    def Y(cls) -> "list[Foo]":
         return [Foo.X]
 
 # descriptors are not enum members

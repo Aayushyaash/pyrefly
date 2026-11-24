@@ -1426,7 +1426,7 @@ BadAlias6 = TypeAliasType("BadAlias6", "BadAlias7")  # E: cyclic self-reference 
 BadAlias7 = TypeAliasType("BadAlias7", BadAlias6)  # E: cyclic self-reference in `BadAlias7`
 
 # Self-reference via list
-BadAlias21 = TypeAliasType("BadAlias21", list[BadAlias21])  # E: cyclic self-reference in `BadAlias21`
+BadAlias21 = TypeAliasType("BadAlias21", list["BadAlias21"])  # E: cyclic self-reference in `BadAlias21`
 "#,
 );
 

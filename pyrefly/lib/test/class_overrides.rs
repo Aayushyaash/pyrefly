@@ -927,10 +927,10 @@ class C[T: (int, str)]:
 
     @cached_property
     @overload
-    def x(self: C[int]) -> int: ...
+    def x(self: "C[int]") -> int: ...
     @cached_property
     @overload
-    def x(self: C[str]) -> str: ...
+    def x(self: "C[str]") -> str: ...
     @cached_property
     def x(self) -> int | str:
         return self.value
@@ -1028,10 +1028,10 @@ class ReadOnly(Protocol):
 class C[T]:
     @cached_property
     @overload
-    def x(self: C[int]) -> int: ...
+    def x(self: "C[int]") -> int: ...
     @cached_property
     @overload
-    def x(self: C[str]) -> str: ...
+    def x(self: "C[str]") -> str: ...
     @cached_property
     def x(self) -> int | str:
         return 1
@@ -1213,10 +1213,10 @@ class MissingArgument(Base):
 class NoApplicableOverload[T](Base):
     @cached_property
     @overload
-    def x(self: NoApplicableOverload[int]) -> Any: ...  # E: Class member `NoApplicableOverload.x` overrides parent class `Base` in an inconsistent manner
+    def x(self: "NoApplicableOverload[int]") -> Any: ...  # E: Class member `NoApplicableOverload.x` overrides parent class `Base` in an inconsistent manner
     @cached_property
     @overload
-    def x(self: NoApplicableOverload[str]) -> Any: ...
+    def x(self: "NoApplicableOverload[str]") -> Any: ...
     @cached_property
     def x(self) -> Any:
         return None

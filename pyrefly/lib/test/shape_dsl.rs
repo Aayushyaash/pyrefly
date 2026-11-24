@@ -1212,7 +1212,7 @@ from typing import assert_type
 
 class Array[DType, Shape: IntTuple]:
     shape: Shape
-    def __getitem__[I: Index](self, index: I) -> Array[DType, index_shape(Shape, I)]: ...
+    def __getitem__[I: Index](self, index: I) -> "Array[DType, index_shape(Shape, I)]": ...
 
 def concrete(x: Array[float, [2, 3, 4]]) -> None:
     assert_type(x[0], Array[float, [3, 4]])
@@ -1670,8 +1670,8 @@ from shape_extensions import Index, IntTuple, index_shape
 from typing import reveal_type
 
 class Array[Shape: IntTuple, DType]:
-    def clone(self) -> Array[Shape, DType]: ...
-    def __getitem__[I: Index](self, index: I) -> Array[index_shape(Shape, I), DType]: ...
+    def clone(self) -> "Array[Shape, DType]": ...
+    def __getitem__[I: Index](self, index: I) -> "Array[index_shape(Shape, I), DType]": ...
 
 def f(x: Array[[2, 3], int]) -> None:
     y = x.clone()
@@ -5066,7 +5066,7 @@ from typing import reveal_type
 
 class Array[Meta: IntTuple, Shape: IntTuple, DType]:
     shape: Shape
-    def clone(self) -> Array[Meta, Shape, DType]: ...
+    def clone(self) -> "Array[Meta, Shape, DType]": ...
 
 def f[Shape: IntTuple](x: Array[IntTuple[1], Shape, int]) -> None:
     y = x.clone()
@@ -6098,7 +6098,7 @@ from shape_extensions import broadcast, IntTuple
 class Array[Shape: IntTuple, DType]:
     shape: Shape
     def dtype(self) -> DType: ...
-    def __add__[OtherShape: IntTuple](self, other: Array[OtherShape, DType]) -> Array[broadcast(Shape, OtherShape), DType]: ...
+    def __add__[OtherShape: IntTuple](self, other: "Array[OtherShape, DType]") -> "Array[broadcast(Shape, OtherShape), DType]": ...
 
 def f(
     x: Array[[2, 3], int],
@@ -6130,7 +6130,7 @@ from shape_extensions import broadcast, Int, IntTuple
 
 class Array[Shape: IntTuple, DType]:
     shape: Shape
-    def __add__[OtherShape: IntTuple](self, other: Array[OtherShape, DType]) -> Array[broadcast(Shape, OtherShape), DType]: ...
+    def __add__[OtherShape: IntTuple](self, other: "Array[OtherShape, DType]") -> "Array[broadcast(Shape, OtherShape), DType]": ...
 
 def f(
     known: Array[[5, 5], int],
