@@ -4563,7 +4563,6 @@ result = [x for x in x if x in [1]]
     );
 }
 
-// Known bug: default edits leave cached imported constructor hovers unchanged.
 #[test]
 fn hover_imported_constructor_after_default_edit() {
     for retention in [Require::Exports, Require::Everything] {
@@ -4613,7 +4612,7 @@ class C:
                 after
                     .split_whitespace()
                     .collect::<String>()
-                    .contains("x:int=1"),
+                    .contains("x:int=2"),
                 "retention={retention:?}; exported_alias={exported_alias}; {after}"
             );
         }

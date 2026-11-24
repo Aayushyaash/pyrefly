@@ -27,8 +27,6 @@ use starlark_map::small_set::SmallSet;
 
 use crate::display::TypeDisplayContext;
 use crate::env::TypeEnv;
-use crate::equality::TypeEq;
-use crate::equality::TypeEqCtx;
 use crate::function::UnresolvedImports;
 use crate::quantified::Quantified;
 use crate::type_output::DisplayOutput;
@@ -460,7 +458,7 @@ pub enum Param {
 }
 
 /// This stores type and display information for an optional parameter's default.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, TypeOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, TypeEq, TypeOrd)]
 pub struct DefaultValue {
     /// Call solving uses this type. `None` means that the default provides display information only.
     pub ty: Option<Type>,
@@ -469,7 +467,7 @@ pub struct DefaultValue {
     pub display: Option<String>,
 }
 
-/// Visit/VisitMut/TypeEq delegate to `ty` only; `display` is display-only metadata.
+/// Type traversal excludes display metadata, but incremental equality includes it.
 impl<To> Visit<To> for DefaultValue
 where
     Type: Visit<To>,
@@ -487,12 +485,6 @@ where
     const RECURSE_CONTAINS: bool = true;
     fn recurse_mut(&mut self, f: &mut dyn FnMut(&mut To)) {
         self.ty.visit_mut(f);
-    }
-}
-
-impl TypeEq for DefaultValue {
-    fn type_eq(&self, other: &Self, ctx: &mut TypeEqCtx) -> bool {
-        self.ty.type_eq(&other.ty, ctx)
     }
 }
 
@@ -1219,7 +1211,6 @@ mod tests {
         assert_eq!(counts.keyword.max, None);
     }
 
-    // Known bug: display-only default edits compare equal during incremental checking.
     #[test]
     fn test_display_only_default_equality_after_edit() {
         let default = DefaultValue {
@@ -1231,7 +1222,7 @@ mod tests {
             display: Some("2".to_owned()),
         };
         assert!(default.type_eq(&default.clone(), &mut TypeEqCtx::default()));
-        assert!(default.type_eq(&changed, &mut TypeEqCtx::default()));
+        assert!(!default.type_eq(&changed, &mut TypeEqCtx::default()));
     }
 
     #[test]
