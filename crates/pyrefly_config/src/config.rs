@@ -3620,6 +3620,64 @@ mod tests {
     }
 
     #[test]
+    fn test_sub_config_matches_and_precedence() {
+        let root = TempDir::new().unwrap();
+        let config_path = root.path().join(ConfigFile::PYREFLY_FILE_NAME);
+        fs::write(
+            &config_path,
+            r#"
+ignore-errors-in-generated-code = false
+
+[[sub-config]]
+matches = "src/except.py"
+ignore-errors-in-generated-code = false
+
+[[sub-config]]
+matches = "src/**"
+ignore-errors-in-generated-code = true
+"#,
+        )
+        .unwrap();
+        let (config, errors) = ConfigFile::from_file(&config_path);
+        assert!(errors.is_empty());
+        for (path, expected) in [
+            ("src/nested/generated.py", true),
+            ("src/except.py", false),
+            ("other/generated.py", false),
+        ] {
+            let module_path = ModulePath::filesystem(root.path().join(path));
+            assert_eq!(
+                config.ignore_errors_in_generated_code(&module_path),
+                expected,
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_deserializing_sub_config_list() {
+        // A single override block cannot yet select multiple unrelated paths.
+        let config_str = "[[sub-config]]\nmatches = [\"a.py\", \"src/**\"]\n";
+        assert!(ConfigFile::parse_config(config_str).is_err());
+    }
+
+    #[test]
+    fn test_deserializing_sub_config_empty_matches() {
+        assert!(ConfigFile::parse_config("[[sub-config]]\nmatches = []\n").is_err());
+    }
+
+    #[test]
+    fn test_deserializing_sub_config_invalid_glob() {
+        let err = ConfigFile::parse_config("[[sub-config]]\nmatches = \"src/[a\"\n")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("While constructing glob pattern from src/[a"),
+            "{err}"
+        );
+    }
+
+    #[test]
     fn test_only_config_parsing() {
         let config_str = r#"
         only = ["bad-assignment", "bad-return"]

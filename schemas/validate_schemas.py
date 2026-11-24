@@ -184,6 +184,18 @@ NEGATIVE_TEST_CASES: list[tuple[str, str]] = [
         "sub_config_entry_without_matches",
         "[[sub-config]]\npermissive-ignores = true",
     ),
+    (
+        "sub_config_matches_as_array",
+        '[[sub-config]]\nmatches = ["a.py", "src/**"]',
+    ),
+    (
+        "sub_config_matches_empty_array",
+        "[[sub-config]]\nmatches = []",
+    ),
+    (
+        "sub_config_matches_non_string_items",
+        "[[sub-config]]\nmatches = [123]",
+    ),
     # --- Conditional build-system validation ---
     (
         "build_system_buck_with_command",
