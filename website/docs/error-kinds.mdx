@@ -1259,7 +1259,7 @@ f"{1:.2d}"  # invalid-format-spec, if enabled
 
 Default severity: `warn`
 
-A comment looks like a type checker ignore directive but is malformed, so it would silently suppress nothing (or not what was intended). Pyrefly recognizes three cases: a typo'd directive keyword (`# pyrefly: ignoree`), an unterminated error-code list (`# pyrefly: ignore[bad-code`), and an empty error-code list (`# pyrefly: ignore[]`). A well-formed comment such as `# type: ignore`, `# pyrefly: ignore[bad-return]`, or `# pyrefly: ignore-errors` is never flagged.
+Malformed ignore comments are flagged without changing their lenient suppression effects: misspelled tool directives (`# pyrefly: ignoree`), unterminated lists (`# pyrefly: ignore[bad-code`), and empty lists (`# pyrefly: ignore[]`). Identifier extensions in `# type: <identifier>` can be ordinary type comments, so they are not flagged as typos.
 
 ```python
 x: int = "oops"  # pyrefly: ignoree  # invalid-ignore-comment: did you mean `ignore`?

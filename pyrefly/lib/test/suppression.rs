@@ -22,15 +22,14 @@ x = 1  # pyrefly: ignore[bad-assignment  # E: Unterminated
 );
 
 testcase!(
-    bug = "Type-comment identifiers starting with ignore are linted as typos",
     test_ignore_prefix_type_alias_comments,
     r#"
 ignore1 = int
 ignoree = int
 ignored_type = int
-x = 1  # type:ignore1  # E: Invalid ignore comment
-x = 1  # type: ignoree  # E: Invalid ignore comment
-x = 1  # type: ignored_type  # E: Invalid ignore comment
+x = 1  # type:ignore1
+x = 1  # type: ignoree
+x = 1  # type: ignored_type
 "#,
 );
 

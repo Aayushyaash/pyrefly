@@ -1746,11 +1746,12 @@ def f(some_condition: bool):
 
     #[test]
     fn test_invalid_ignore_ambiguous_type_comment() {
-        // Bug: a legitimate type identifier beginning with `ignore` is linted.
         let (errors, _tdir) = get_errors("ignored_type = int\nx = 1  # type: ignored_type\n");
-        let display = errors.collect_display_errors_with_unused_ignores();
-        assert_eq!(display.len(), 1);
-        assert_eq!(display[0].error_kind(), ErrorKind::InvalidIgnoreComment);
+        assert!(
+            errors
+                .collect_display_errors_with_unused_ignores()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -2063,7 +2064,7 @@ x: int = "oops"  # pyrefly: ignoree
     #[test]
     fn test_invalid_ignore_comment_skipped_in_generated_code() {
         let contents = r#"# @generated
-x: int = 1  # type: ignore1
+x: int = 1  # type: ignore1  # pyrefly: ignoree
 "#;
         let (errors, _tdir) = get_errors_with_config(contents, |config| {
             config.root.ignore_errors_in_generated_code = Some(true);

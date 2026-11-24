@@ -709,10 +709,12 @@ impl Ignore {
             (Some(kind), reason)
         } else if gap || lex.word_boundary() {
             (Some(Vec::new()), None)
-        } else if (tool != Tool::Pyrefly && (lex.0.starts_with('-') || lex.0.starts_with('_')))
+        } else if tool == Tool::Type
+            || (tool != Tool::Pyrefly && (lex.0.starts_with('-') || lex.0.starts_with('_')))
             || ((lex.starts_with("-errors") || lex.starts_with("-all-errors"))
                 && lex.word_boundary())
         {
+            // `# type: <identifier>` may be a type comment, not a misspelled directive.
             // File-level and other-tool directives are handled separately.
             return (None, None);
         } else {
@@ -1289,12 +1291,7 @@ x = """
             MalformedReason::UnknownDirective,
             None,
         );
-        malformed(
-            "type: ignore1",
-            Tool::Type,
-            MalformedReason::UnknownDirective,
-            None,
-        );
+        not_directive("type: ignore1");
         not_directive("type: ignore_none");
         malformed(
             "pyrefly: ignore_none",
