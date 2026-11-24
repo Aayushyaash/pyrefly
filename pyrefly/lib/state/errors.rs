@@ -36,6 +36,7 @@ use ruff_python_ast::visitor::Visitor;
 use ruff_python_ast::visitor::walk_expr;
 use ruff_text_size::Ranged;
 use ruff_text_size::TextRange;
+use ruff_text_size::TextSize;
 use starlark_map::small_map::SmallMap;
 use starlark_map::small_set::SmallSet;
 
@@ -863,6 +864,19 @@ impl Errors {
         let mut unused_errors = Vec::new();
         for (applies_to_line, suppressions) in module.ignore().iter() {
             for supp in suppressions {
+                if !module.ignore().malformed().is_empty() {
+                    let start = module.lined_buffer().line_start(supp.comment_line())
+                        + TextSize::try_from(supp.comment_offset())
+                            .expect("comment offset fits in u32");
+                    if module
+                        .ignore()
+                        .malformed()
+                        .binary_search_by_key(&start, |comment| comment.range().start())
+                        .is_ok()
+                    {
+                        continue;
+                    }
+                }
                 if ranges.is_some_and(|ranges| ranges.ignore_all.contains(supp)) {
                     continue;
                 }
@@ -1692,7 +1706,6 @@ def f(some_condition: bool):
 
     #[test]
     fn test_invalid_ignore_lenient_suppression() {
-        // Bug: empty entries no longer retain their original suppression effects.
         for comment in [
             "type: ignore[]",
             "type: ignore[,]",
@@ -1705,12 +1718,12 @@ def f(some_condition: bool):
             let (errors, _tdir) = get_errors_with_config(&contents, |config| {
                 config.root.enabled_ignores = Some(Tool::all());
             });
-            assert!(errors.collect_errors().suppressed.is_empty(), "{comment}");
+            assert_eq!(errors.collect_errors().suppressed.len(), 1, "{comment}");
             assert!(
                 errors
                     .collect_display_errors_with_unused_ignores()
                     .iter()
-                    .any(|e| { e.error_kind() == ErrorKind::BadAssignment }),
+                    .all(|e| { e.error_kind() != ErrorKind::BadAssignment }),
                 "{comment}"
             );
         }
@@ -1718,7 +1731,6 @@ def f(some_condition: bool):
 
     #[test]
     fn test_invalid_ignore_duplicate_unused() {
-        // Bug: an unterminated list also produces an unused-ignore diagnostic.
         let (errors, _tdir) =
             get_errors_with_config("x = 1  # pyrefly: ignore[bad-assignment\n", |config| {
                 config
@@ -1728,12 +1740,8 @@ def f(some_condition: bool):
                     .set_error_severity(ErrorKind::UnusedIgnore, Severity::Error);
             });
         let display = errors.collect_display_errors_with_unused_ignores();
-        assert_eq!(display.len(), 2);
-        assert!(
-            display
-                .iter()
-                .any(|e| e.error_kind() == ErrorKind::UnusedIgnore)
-        );
+        assert_eq!(display.len(), 1);
+        assert_eq!(display[0].error_kind(), ErrorKind::InvalidIgnoreComment);
     }
 
     #[test]

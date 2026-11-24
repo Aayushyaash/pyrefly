@@ -705,7 +705,8 @@ impl Ignore {
             } else {
                 None
             };
-            ((!kind.is_empty()).then_some(kind), reason)
+            // An empty Type tag still applies the configured unknown-tag policy.
+            (Some(kind), reason)
         } else if gap || lex.word_boundary() {
             (Some(Vec::new()), None)
         } else if (tool != Tool::Pyrefly && (lex.0.starts_with('-') || lex.0.starts_with('_')))
@@ -955,11 +956,7 @@ pub fn parse_ignore_all(
 
 /// Split the comma-separated error codes inside a `[...]` suppression into trimmed names.
 fn parse_error_codes(inside: &str) -> Vec<String> {
-    inside
-        .split(',')
-        .map(|x| x.trim().to_owned())
-        .filter(|x| !x.is_empty())
-        .collect()
+    inside.split(',').map(|x| x.trim().to_owned()).collect()
 }
 
 /// Recognize an `ignore-errors` / `ignore-errors[code]` directive body, with the
@@ -1321,36 +1318,36 @@ x = """
             Some(&["hello", "world"]),
         );
 
-        // Empty brackets are malformed and have no suppression.
+        // Empty brackets retain their raw suppression entries and a separate lint.
         malformed(
             "pyrefly: ignore[]",
             Tool::Pyrefly,
             MalformedReason::EmptyBracket,
-            None,
+            Some(&[""]),
         );
         malformed(
             "pyrefly: ignore[   ]",
             Tool::Pyrefly,
             MalformedReason::EmptyBracket,
-            None,
+            Some(&[""]),
         );
         malformed(
             "pyrefly: ignore[,]",
             Tool::Pyrefly,
             MalformedReason::EmptyBracket,
-            None,
+            Some(&["", ""]),
         );
         malformed(
             "pyrefly: ignore[ , ]",
             Tool::Pyrefly,
             MalformedReason::EmptyBracket,
-            None,
+            Some(&["", ""]),
         );
         malformed(
             "type: ignore[]",
             Tool::Type,
             MalformedReason::EmptyBracket,
-            None,
+            Some(&[""]),
         );
 
         // A typo'd file-level directive (`ignore-errorss`) is still a typo.
@@ -1373,7 +1370,6 @@ x = """
 
     #[test]
     fn test_empty_entries_suppression_effects() {
-        // Bug: dropping empty entries removes Type/Pyre suppression and warning caps.
         let line = LineNumber::default();
         for comment in [
             "type: ignore[]",
@@ -1389,7 +1385,17 @@ x = """
             ] {
                 assert_eq!(
                     ignore.suppression_effect(line, "bad-assignment", &Tool::all(), policy),
-                    SuppressionEffect::None,
+                    if comment.starts_with("pyre") {
+                        SuppressionEffect::Suppress
+                    } else {
+                        match policy {
+                            TypeIgnoreUnknownTagBehavior::Suppress => SuppressionEffect::Suppress,
+                            TypeIgnoreUnknownTagBehavior::DowngradeToWarning => {
+                                SuppressionEffect::DowngradeToWarning
+                            }
+                            TypeIgnoreUnknownTagBehavior::NoEffect => SuppressionEffect::None,
+                        }
+                    },
                     "{comment}: {policy:?}"
                 );
             }
@@ -1397,7 +1403,7 @@ x = """
         let ignore = Ignore::new("x = 1  # type: ignore[pyrefly:bad-return,]");
         assert_eq!(
             ignore.get(&line).unwrap()[0].error_codes(),
-            &["pyrefly:bad-return"]
+            &["pyrefly:bad-return", ""]
         );
         assert_eq!(
             ignore.suppression_effect(
@@ -1406,7 +1412,7 @@ x = """
                 &Tool::all(),
                 TypeIgnoreUnknownTagBehavior::DowngradeToWarning
             ),
-            SuppressionEffect::None
+            SuppressionEffect::DowngradeToWarning
         );
     }
 
