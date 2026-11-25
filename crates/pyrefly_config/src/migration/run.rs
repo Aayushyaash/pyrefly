@@ -573,6 +573,112 @@ mod tests {
     }
 
     #[test]
+    fn test_pyright_json_migration_source() -> anyhow::Result<()> {
+        let cases = [
+            (
+                "shared settings",
+                r#"{"reportUnusedCallResult": "warning"}"#,
+                false,
+                None,
+                None,
+            ),
+            (
+                "JSONC comment",
+                "{\n // \"reportAny\": true,\n \"include\": [\"src\"],\n}",
+                false,
+                None,
+                None,
+            ),
+            (
+                "recommended mode",
+                r#"{"typeCheckingMode": "recommended"}"#,
+                false,
+                None,
+                None,
+            ),
+            (
+                "all mode",
+                r#"{"typeCheckingMode": "all"}"#,
+                false,
+                None,
+                None,
+            ),
+            (
+                "disabled rule",
+                r#"{"reportAny": false}"#,
+                false,
+                None,
+                None,
+            ),
+            (
+                "unmapped rule",
+                r#"{"reportIgnoreCommentWithoutRule": "warning"}"#,
+                false,
+                None,
+                None,
+            ),
+            (
+                "execution environment rule",
+                r#"{"executionEnvironments": [{"root": "src", "reportExplicitAny": "none"}]}"#,
+                false,
+                None,
+                None,
+            ),
+            (
+                "explicit settings",
+                r#"{"reportAny": false, "typeCheckingMode": "off", "pythonPlatform": "Linux"}"#,
+                false,
+                Some(Preset::Off),
+                Some("linux"),
+            ),
+            ("existing baseline", "{}", true, None, None),
+            (
+                "configured baseline",
+                r#"{"baselineFile": "custom.json"}"#,
+                false,
+                None,
+                None,
+            ),
+        ];
+        for (label, source, baseline, preset, platform) in cases {
+            let tmp = tempfile::tempdir()?;
+            fs_anyhow::write(&tmp.path().join("pyrightconfig.json"), source)?;
+            if baseline {
+                write_baseline(tmp.path(), ".basedpyright/baseline.json")?;
+            }
+
+            let (config, kind) =
+                find_and_migrate_in_memory(tmp.path())?.expect("should find pyrightconfig.json");
+            assert_eq!(
+                kind,
+                MigratedFromKind::Pyright(MigratedConfigSource::DedicatedFile),
+                "{label}"
+            );
+            assert_eq!(config.root.preset, preset, "{label}");
+            assert!(!tmp.path().join("pyrefly.toml").exists(), "{label}");
+
+            let result = config_migration(tmp.path(), MigrationSource::Auto, false, false)?;
+            let written = fs_anyhow::read_to_string(&result.config_path)?;
+            let written: toml::Table = toml::from_str(&written)?;
+            assert_eq!(
+                written
+                    .get("preset")
+                    .and_then(toml::Value::as_str)
+                    .map(str::to_owned),
+                preset.map(|p| p.to_string()),
+                "{label}"
+            );
+            assert_eq!(
+                written.get("python-platform").and_then(toml::Value::as_str),
+                platform,
+                "{label}"
+            );
+            assert_eq!(result.migrated_baseline, baseline, "{label}");
+        }
+        Ok(())
+    }
+
+    #[test]
     fn test_run_mypy() -> anyhow::Result<()> {
         let tmp = tempfile::tempdir()?;
         let original_config_path = tmp.path().join("mypy.ini");
