@@ -645,6 +645,45 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_descriptor_inheritance_configuration() {
+        let kind = ErrorKind::BadDescriptorInheritance;
+        for (preset, expected) in [
+            (Preset::Off, Severity::Ignore),
+            (Preset::Basic, Severity::Ignore),
+            (Preset::Legacy, Severity::Ignore),
+            (Preset::Default, Severity::Ignore),
+            (Preset::Strict, Severity::Warn),
+            (Preset::All, Severity::Error),
+        ] {
+            let defaults = preset.apply().errors.unwrap_or_default();
+            assert_eq!(defaults.severity(kind), expected, "{preset}");
+            for parent_severity in [Severity::Ignore, Severity::Error] {
+                let mut errors = defaults.clone();
+                errors.merge_user_overrides(&ErrorDisplayConfig::new(HashMap::from([(
+                    ErrorKind::BadOverride,
+                    parent_severity,
+                )])));
+                assert_eq!(
+                    errors.severity(kind),
+                    expected,
+                    "{preset}: independent kind"
+                );
+                for severity in [Severity::Ignore, Severity::Warn, Severity::Error] {
+                    let mut explicitly_set = errors.clone();
+                    explicitly_set.merge_user_overrides(&ErrorDisplayConfig::new(HashMap::from([
+                        (kind, severity),
+                    ])));
+                    assert_eq!(explicitly_set.severity(kind), severity, "{preset}");
+                    assert_eq!(
+                        explicitly_set.severity(ErrorKind::BadOverride),
+                        parent_severity
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn test_redundant_type_check_configuration() {
         for (preset, expected) in [
             (Preset::Off, Severity::Ignore),
