@@ -1131,10 +1131,10 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                             && matches!(
                                 (left, right),
                                 (Type::ClassType(left), Type::ClassType(right))
-                                    if (left == self.stdlib.datetime()
-                                        && right == self.stdlib.date())
-                                        || (left == self.stdlib.date()
-                                            && right == self.stdlib.datetime())
+                                    if (left.is(KnownClass::Datetime)
+                                        && right.is(KnownClass::DatetimeDate))
+                                        || (left.is(KnownClass::DatetimeDate)
+                                            && right.is(KnownClass::Datetime))
                             )
                         {
                             self.error(

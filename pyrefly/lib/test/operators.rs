@@ -1992,6 +1992,30 @@ dt < datetime.now()
 "#,
 );
 
+// Newer typeshed makes `datetime` generic over its `tzinfo`. The check must still apply when
+// `datetime` has type arguments that differ from its defaults.
+testcase!(
+    test_date_datetime_comparison_generic_datetime,
+    TestEnv::one(
+        "datetime",
+        r#"
+from typing import Generic, TypeVar
+class tzinfo: ...
+_TzInfoT = TypeVar("_TzInfoT", bound=tzinfo | None, default=tzinfo | None)
+class date:
+    def __lt__(self, value: "date", /) -> bool: ...
+class datetime(date, Generic[_TzInfoT]): ...
+"#,
+    ),
+    r#"
+from datetime import date, datetime
+
+def f(d: date, dt: datetime[None]):
+    dt < d  # E: `<` is not supported between `datetime[None]` and `date`
+    d < dt  # E: `<` is not supported between `date` and `datetime[None]`
+"#,
+);
+
 testcase!(
     test_bitor_unknown_operands,
     r#"
