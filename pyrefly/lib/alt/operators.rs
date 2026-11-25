@@ -37,6 +37,7 @@ use crate::alt::answers::LookupAnswer;
 use crate::alt::answers_solver::AnswersSolver;
 use crate::alt::call::CallStyle;
 use crate::alt::callable::CallArg;
+use crate::alt::class::enums::GENERATE_NEXT_VALUE;
 use crate::alt::expr::MAX_TUPLE_LENGTH;
 use crate::alt::narrow::IntersectFallback;
 use crate::alt::solve::TypeFormContext;
@@ -1419,6 +1420,36 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         match (left, right) {
             // If both are literals/None, check for predictable results
             (Type::Literal(l1), Type::Literal(l2)) => {
+                // Two members of one enum are the same object when their values are equal, so
+                // the result is only known when the values are provably different.
+                if let (Lit::Enum(e1), Lit::Enum(e2)) = (&l1.value, &l2.value)
+                    && e1.class.class_object() == e2.class.class_object()
+                {
+                    let values_differ = match (&e1.ty, &e2.ty) {
+                        (Type::Literal(v1), Type::Literal(v2)) => {
+                            v1.value.general_class_type(self.stdlib)
+                                == v2.value.general_class_type(self.stdlib)
+                                && v1.value != v2.value
+                        }
+                        // From 3.13, the default `_generate_next_value_` returns the largest
+                        // value so far plus one, so every `auto()` member gets a new value.
+                        (Type::ClassType(c1), Type::ClassType(c2)) => {
+                            c1.is(KnownClass::EnumAuto)
+                                && c2.is(KnownClass::EnumAuto)
+                                && self.bindings().sys_info().version().at_least(3, 13)
+                                && self
+                                    .get_class_member_with_defining_class(
+                                        e1.class.class_object(),
+                                        &GENERATE_NEXT_VALUE,
+                                    )
+                                    .is_some_and(|field| field.defining_class.is(KnownClass::Enum))
+                        }
+                        _ => false,
+                    };
+                    if !values_differ {
+                        return;
+                    }
+                }
                 // Explicit/implicit literal style is typing metadata, not runtime identity.
                 if l1.value != l2.value {
                     emit_literal_warning(

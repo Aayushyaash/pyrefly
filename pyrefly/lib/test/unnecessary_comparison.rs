@@ -180,14 +180,19 @@ def check(value: int, texts: list[str], names: set[str], keys: dict[str, int],
 
 // https://github.com/pyrefly-org/pyrefly/issues/5150
 testcase!(
-    bug = "Enum members with equal values are the same object at runtime",
     test_enum_members_with_equal_values,
     r#"
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, IntEnum
 
 @dataclass
 class Foo: ...
+
+class X(IntEnum):
+    A = 1
+
+class Y(IntEnum):
+    B = 1
 
 class E(Enum):
     A = Foo()
@@ -201,11 +206,17 @@ class G(Enum):
     A = 1
     B = True
 
-if E.A is E.B:  # E: Identity comparison `E.A is E.B` is always False
+class H(Enum):
+    A = X.A
+    B = Y.B
+
+if E.A is E.B:
     pass
-if F.A is F.B:  # E: Identity comparison `F.A is F.B` is always False
+if F.A is F.B:
     pass
-if G.A is G.B:  # E: Identity comparison `G.A is G.B` is always False
+if G.A is G.B:
+    pass
+if H.A is H.B:
     pass
 "#,
 );
@@ -227,7 +238,6 @@ if E.A is not E.B:  # E: Identity comparison `E.A is not E.B` is always True
 );
 
 testcase!(
-    bug = "A custom `_generate_next_value_` can give two `auto()` members the same value",
     test_enum_auto_members,
     r#"
 from enum import Enum, auto
@@ -246,13 +256,12 @@ class F(Enum):
 
 if E.X is E.Y:  # E: Identity comparison `E.X is E.Y` is always False
     pass
-if F.X is F.Y:  # E: Identity comparison `F.X is F.Y` is always False
+if F.X is F.Y:
     pass
 "#,
 );
 
 testcase!(
-    bug = "Before 3.13, `auto()` can repeat an earlier value when member values can't be sorted",
     test_enum_auto_members_before_3_13,
     TestEnv::new_with_version(PythonVersion::new(3, 12, 0)),
     r#"
@@ -264,7 +273,7 @@ class E(Enum):
     Z = 0
     Y = auto()  # 1 at runtime, the same as `X`
 
-if E.X is E.Y:  # E: Identity comparison `E.X is E.Y` is always False
+if E.X is E.Y:
     pass
 "#,
 );
