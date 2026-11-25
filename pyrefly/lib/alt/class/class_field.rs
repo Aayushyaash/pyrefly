@@ -957,6 +957,24 @@ impl ClassField {
         }
     }
 
+    /// Self returns can be bound only when every such signature also takes Self as receiver.
+    fn has_unbound_self_return(&self) -> bool {
+        let ClassFieldInner::Method { ty, .. } = &self.0 else {
+            return false;
+        };
+        if !is_ordinary_instance_method_type(ty) {
+            return false;
+        }
+        let mut signatures = ty
+            .toplevel_callable_signatures()
+            .filter(|(signature, _)| signature.ret.any(|ty| matches!(ty, Type::SelfType(_))))
+            .peekable();
+        signatures.peek().is_some()
+            && signatures.all(|(signature, _)| {
+                matches!(signature.get_first_param(), Some(Type::SelfType(_)))
+            })
+    }
+
     pub fn is_abstract(&self) -> bool {
         match &self.0 {
             ClassFieldInner::Property { is_abstract, .. } => *is_abstract,
@@ -3855,11 +3873,16 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
     }
 
     /// Creates a Quantified for a class's "self" type.
-    fn get_self_quantified(&self, class: &Class, instance_type: Type) -> Quantified {
+    fn get_self_quantified(
+        &self,
+        class: &Class,
+        instance_type: Type,
+        origin: QuantifiedOrigin,
+    ) -> Quantified {
         let identity = QuantifiedIdentity::new(
             class.module_name(),
             AnchorIndex::first(QuantifiedAnchor::Class(class.index())),
-            QuantifiedOrigin::Synthetic { is_self: true },
+            origin,
         );
         Quantified::new(
             identity,
@@ -3974,7 +3997,11 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         // special case because it's not legal to use `Self` in other static methods.
         let self_quantified =
             if field_name == &dunder::NEW && matches!(instance.kind, InstanceKind::ClassType(_)) {
-                Some(self.get_self_quantified(instance.class, instance.to_type(self.heap, self)))
+                Some(self.get_self_quantified(
+                    instance.class,
+                    instance.to_type(self.heap, self),
+                    QuantifiedOrigin::Synthetic { is_self: true },
+                ))
             } else {
                 None
             };
@@ -4134,17 +4161,30 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         cls: &ClassBase,
         overload_self_type: Option<Type>,
     ) -> ClassAttribute {
-        // Special handling for `__new__`: because `__new__` is a static method, it can be called
-        // with a `cls` argument that differs from the class on which it is accessed, so we use a
-        // quantified to capture `cls`. Note that `__new__` is the only method that needs this
-        // special case because it's not legal to use `Self` in other static methods.
-        let self_quantified = if field_name == &dunder::NEW
-            && let ClassBase::ClassDef(cls) = cls
-        {
-            Some(self.get_self_quantified(cls.class_object(), self.heap.mk_class_type(cls.clone())))
-        } else {
-            None
+        // Unbound Self-returning methods need a receiver binder; classmethods already
+        // bind their receiver. Generic class bounds keep their existing behavior.
+        // `__new__` retains its ClassDef-only constructor binder.
+        let needs_self_quantified = match cls {
+            ClassBase::ClassDef(class) => {
+                field_name == &dunder::NEW
+                    || (class.targs().is_empty() && field.has_unbound_self_return())
+            }
+            ClassBase::ClassType(class) => {
+                class.targs().is_empty() && field.has_unbound_self_return()
+            }
+            _ => false,
         };
+        let self_quantified = needs_self_quantified.then(|| {
+            self.get_self_quantified(
+                cls.class_object(),
+                self.heap.mk_class_type(cls.class_type().clone()),
+                if field_name == &dunder::NEW {
+                    QuantifiedOrigin::Synthetic { is_self: true }
+                } else {
+                    QuantifiedOrigin::UnboundMethodSelf
+                },
+            )
+        });
         let self_type = match &self_quantified {
             Some(quantified) => quantified.clone().to_type(self.heap),
             None => cls.clone().to_self_type(self.heap),

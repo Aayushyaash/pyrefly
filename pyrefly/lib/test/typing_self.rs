@@ -10,7 +10,6 @@ use crate::testcase;
 
 // Reading an unbound function must retain the relationship between its receiver and Self.
 testcase!(
-    bug = "Class access specializes Self before the function is bound",
     test_copied_self_unbound_method,
     r#"
 from typing import Callable, ClassVar, Self, assert_type
@@ -29,20 +28,20 @@ class Base:
         return value
 
 class Child(Base):
-    identity = Base.identity  # E: inconsistent
+    identity = Base.identity
     plain = Base.plain
 
 saved = Base.identity
-assert_type(saved(Child()), Base)
-assert_type(Base.identity(Child()), Base)
-assert_type(Child().identity(), Base)
+assert_type(saved(Child()), Child)
+assert_type(Base.identity(Child()), Child)
+assert_type(Child().identity(), Child)
 assert_type(Child().plain(), Base)
 assert_type(Child.factory(), Child)
 assert_type(Child.static(Child()), Base)
 assert_type(Base.value, Base)
 assert_type(Child.value, Child)
 
-precise: Callable[[Child], Child] = Base.identity  # E: not assignable
+precise: Callable[[Child], Child] = Base.identity
 invalid: Callable[[Base], Child] = Base.identity  # E: not assignable
 
 class Unrelated:
@@ -99,7 +98,6 @@ assert_type(Child().identity(), Child)
 );
 
 testcase!(
-    bug = "Unbound Self returns lose the actual receiver type",
     test_copied_self_bound_class_controls,
     r#"
 from typing import Self, assert_type
@@ -113,9 +111,9 @@ class Base:
 class Child(Base): ...
 
 def check(cls: type[Base]) -> None:
-    assert_type(cls.identity(Child()), Base)
+    assert_type(cls.identity(Child()), Child)
 
-assert_type(Base.tag(Child(), 1), tuple[Base, int])
+assert_type(Base.tag(Child(), 1), tuple[Child, int])
 
 class Box[T]:
     def identity(self) -> Self:
@@ -127,7 +125,7 @@ class Concrete(Box[int]): ...
 class Descendant(Concrete): ...
 
 assert_type(Concrete.identity(Concrete()), Concrete)
-assert_type(Concrete.identity(Descendant()), Concrete)
+assert_type(Concrete.identity(Descendant()), Descendant)
 assert_type(Concrete.take(Concrete(), 1), int)
 "#,
 );
@@ -161,10 +159,10 @@ def check(ts, duration) -> None:
     Duration.round(duration)  # E: not used
 
 def explicit(ts: Any, duration: Any) -> None:
-    assert_type(Timestamp.round(ts, "s"), Timestamp | Missing)
-    assert_type(Duration.round(duration), Duration)
+    assert_type(Timestamp.round(ts, "s"), Any | Missing)
+    assert_type(Duration.round(duration), Any)
 
-assert_type(Duration.round(Precise()), Duration)
+assert_type(Duration.round(Precise()), Precise)
 
 def identity[T](value: T) -> T:
     return value
@@ -175,7 +173,6 @@ def ordinary(value) -> None:
 );
 
 testcase!(
-    bug = "Unbound Self returns discard concrete receiver evidence",
     test_copied_self_mixed_receiver_evidence,
     r#"
 from typing import Any, Self, assert_type
@@ -187,9 +184,9 @@ class Base:
 class Child(Base): ...
 
 def check(unknown, child: Child) -> None:
-    assert_type(Base.choose(child, unknown), Base)
-    assert_type(Base.choose(unknown, child), Base)
-    expected: Child = Base.choose(unknown, unknown)  # E: not assignable
+    assert_type(Base.choose(child, unknown), Child)
+    assert_type(Base.choose(unknown, child), Child)
+    expected: Child = Base.choose(unknown, unknown)
     assert_type(expected, Child)
 
 class Widget:

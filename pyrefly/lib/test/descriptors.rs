@@ -10,7 +10,6 @@ use crate::testcase;
 
 // Zope copies its getter from a base as a method lookup optimization.
 testcase!(
-    bug = "Copying a getter specializes its Self return before receiver binding",
     test_copied_self_descriptor_getter,
     TestEnv::new().enable_bad_descriptor_inheritance_error(),
     r#"
@@ -29,10 +28,10 @@ class ExplicitGetter:
 class Inherited(Declaration, InferredGetter): ...
 
 class Copied(Declaration, InferredGetter):
-    __get__ = InferredGetter.__get__  # E: inconsistent  # E: non-descriptor base `Declaration`
+    __get__ = InferredGetter.__get__
 
 class ExplicitCopied(Declaration, ExplicitGetter):
-    __get__ = ExplicitGetter.__get__  # E: inconsistent  # E: non-descriptor base `Declaration`
+    __get__ = ExplicitGetter.__get__
 
 class Owner:
     inherited = Inherited()
@@ -41,10 +40,10 @@ class Owner:
 
 assert_type(Owner.inherited, Inherited)
 assert_type(Owner().inherited, Inherited)
-assert_type(Owner.copied, InferredGetter)
-assert_type(Owner().copied, InferredGetter)
-assert_type(Owner.explicit, ExplicitGetter)
-assert_type(Owner().explicit, ExplicitGetter)
+assert_type(Owner.copied, Copied)
+assert_type(Owner().copied, Copied)
+assert_type(Owner.explicit, ExplicitCopied)
+assert_type(Owner().explicit, ExplicitCopied)
 "#,
 );
 
