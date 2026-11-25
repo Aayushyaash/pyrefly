@@ -7195,6 +7195,18 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         ) else {
             return;
         };
+        // Raw bound-method signatures still contain the unbound receiver variable.
+        // Bind it before inspecting returns; a missing binding is not a usable getter.
+        let getter = if let Type::BoundMethod(method) = &getter {
+            let Some(getter) =
+                self.bind_boundmethod(method, &mut |got, want| self.is_subset_eq(got, want))
+            else {
+                return;
+            };
+            self.normalize_attr_ty(getter)
+        } else {
+            getter
+        };
         let Some(return_type) = getter.callable_return_type(self.heap, self) else {
             return;
         };
