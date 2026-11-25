@@ -329,6 +329,8 @@ pub struct RuleOverrides {
 
     // Name/variable rules
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
+    pub report_unused_variable: Option<Severity>,
+    #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     pub report_unused_parameter: Option<Severity>,
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     pub report_undefined_variable: Option<Severity>,
@@ -562,6 +564,7 @@ impl RuleOverrides {
             ErrorKind::UnusedTypeIgnore,
         );
         add(self.report_unnecessary_cast, ErrorKind::RedundantCast);
+        add(self.report_unused_variable, ErrorKind::UnusedVariable);
         add(self.report_unused_parameter, ErrorKind::UnusedParameter);
         add(self.report_undefined_variable, ErrorKind::UnknownName);
         add(self.report_unbound_variable, ErrorKind::UnboundName);
