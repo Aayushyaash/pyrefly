@@ -296,6 +296,8 @@ pub struct RuleOverrides {
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     pub report_invalid_cast: Option<Severity>,
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
+    pub report_unnecessary_type_ignore_comment: Option<Severity>,
+    #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     pub report_unnecessary_cast: Option<Severity>,
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     pub report_unnecessary_comparison: Option<Severity>,
@@ -505,6 +507,10 @@ impl RuleOverrides {
         add(self.report_unknown_lambda_type, ErrorKind::UnknownFromError);
         add(self.report_invalid_type_var_use, ErrorKind::InvalidTypeVar);
         add(self.report_invalid_cast, ErrorKind::InvalidCast);
+        add(
+            self.report_unnecessary_type_ignore_comment,
+            ErrorKind::UnusedTypeIgnore,
+        );
         add(self.report_unnecessary_cast, ErrorKind::RedundantCast);
         add(self.report_undefined_variable, ErrorKind::UnknownName);
         add(self.report_unbound_variable, ErrorKind::UnboundName);
