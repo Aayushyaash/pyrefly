@@ -1283,6 +1283,33 @@ assert_type(x, Any)
     "#,
 );
 
+// https://github.com/pyrefly-org/pyrefly/issues/4889: without first-use inference, an unsolved
+// type variable becomes an implicit `Any`.
+testcase!(
+    bug = "An unsolved type variable in `__new__`'s return is treated as a missing annotation",
+    test_new_returns_unsolved_type_var,
+    TestEnv::new_with_infer_with_first_use(false),
+    r#"
+from typing import assert_type
+class ViaNew:
+    def __new__[T](cls) -> T: ...
+d: int = ViaNew()  # E: `ViaNew` is not assignable to `int`
+assert_type(ViaNew(), ViaNew)
+    "#,
+);
+
+testcase!(
+    bug = "A type variable in `__new__`'s return that is solved to `Any` gives the class",
+    test_new_returns_type_var_solved_to_any,
+    r#"
+from typing import assert_type
+class FromArg:
+    def __new__[T](cls, x: T) -> T: ...
+def f(x):
+    assert_type(FromArg(x), FromArg)
+    "#,
+);
+
 testcase!(
     test_type_self_constructor_ignores_concrete_new_return,
     r#"
