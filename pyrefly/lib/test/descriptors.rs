@@ -8,6 +8,46 @@
 use crate::test::util::TestEnv;
 use crate::testcase;
 
+// Zope copies its getter from a base as a method lookup optimization.
+testcase!(
+    bug = "Copying a getter specializes its Self return before receiver binding",
+    test_copied_self_descriptor_getter,
+    TestEnv::new().enable_bad_descriptor_inheritance_error(),
+    r#"
+from typing import Self, assert_type
+
+class Declaration: ...
+
+class InferredGetter:
+    def __get__(self, instance: object | None, owner: type[object]):
+        return self
+
+class ExplicitGetter:
+    def __get__(self, instance: object | None, owner: type[object]) -> Self:
+        return self
+
+class Inherited(Declaration, InferredGetter): ...
+
+class Copied(Declaration, InferredGetter):
+    __get__ = InferredGetter.__get__  # E: inconsistent  # E: non-descriptor base `Declaration`
+
+class ExplicitCopied(Declaration, ExplicitGetter):
+    __get__ = ExplicitGetter.__get__  # E: inconsistent  # E: non-descriptor base `Declaration`
+
+class Owner:
+    inherited = Inherited()
+    copied = Copied()
+    explicit = ExplicitCopied()
+
+assert_type(Owner.inherited, Inherited)
+assert_type(Owner().inherited, Inherited)
+assert_type(Owner.copied, InferredGetter)
+assert_type(Owner().copied, InferredGetter)
+assert_type(Owner.explicit, ExplicitGetter)
+assert_type(Owner().explicit, ExplicitGetter)
+"#,
+);
+
 // https://github.com/pyrefly-org/pyrefly/issues/1175
 // Nominal widening can hide a descriptor before it is installed on a class.
 testcase!(

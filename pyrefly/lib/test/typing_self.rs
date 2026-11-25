@@ -5,7 +5,201 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+use crate::test::util::TestEnv;
 use crate::testcase;
+
+// Reading an unbound function must retain the relationship between its receiver and Self.
+testcase!(
+    bug = "Class access specializes Self before the function is bound",
+    test_copied_self_unbound_method,
+    r#"
+from typing import Callable, ClassVar, Self, assert_type
+
+class Base:
+    value: ClassVar[Self]
+    def identity(self) -> Self:
+        return self
+    def plain(self) -> "Base":
+        return self
+    @classmethod
+    def factory(cls) -> Self:
+        return cls()
+    @staticmethod
+    def static(value: "Base") -> "Base":
+        return value
+
+class Child(Base):
+    identity = Base.identity  # E: inconsistent
+    plain = Base.plain
+
+saved = Base.identity
+assert_type(saved(Child()), Base)
+assert_type(Base.identity(Child()), Base)
+assert_type(Child().identity(), Base)
+assert_type(Child().plain(), Base)
+assert_type(Child.factory(), Child)
+assert_type(Child.static(Child()), Base)
+assert_type(Base.value, Base)
+assert_type(Child.value, Child)
+
+precise: Callable[[Child], Child] = Base.identity  # E: not assignable
+invalid: Callable[[Base], Child] = Base.identity  # E: not assignable
+
+class Unrelated:
+    identity = Base.identity
+
+Unrelated().identity()  # E: not assignable
+"#,
+);
+
+testcase!(
+    bug = "Copied generic methods lose the derived Self return type",
+    test_copied_self_generic_method,
+    r#"
+from typing import Self, assert_type
+
+class Box[T]:
+    def identity(self) -> Self:
+        return self
+    def take(self, value: T) -> T:
+        return value
+
+class IntBox(Box[int]):
+    identity = Box.identity  # E: inconsistent
+    take = Box.take
+
+assert_type(Box.identity(IntBox()), Box[int])
+assert_type(IntBox().identity(), Box[int])
+assert_type(IntBox().take(1), int)
+IntBox().take("wrong")  # E: not assignable
+
+class Specialized(Box[int]):
+    identity = Box[int].identity  # E: inconsistent
+
+assert_type(Specialized().identity(), Box[int])
+assert_type(Box[int].identity(Specialized()), Box[int])
+"#,
+);
+
+testcase!(
+    test_copied_self_concrete_receiver_bound,
+    r#"
+from typing import Callable, Self, assert_type, cast
+
+class Base:
+    def identity(self: "Base") -> Self:
+        return cast(Self, self)
+
+class Child(Base): ...
+
+invalid: Callable[[Base], Child] = Base.identity  # E: not assignable
+assert_type(Base.identity(Base()), Base)
+assert_type(Child().identity(), Child)
+"#,
+);
+
+testcase!(
+    bug = "Unbound Self returns lose the actual receiver type",
+    test_copied_self_bound_class_controls,
+    r#"
+from typing import Self, assert_type
+
+class Base:
+    def identity(self) -> Self:
+        return self
+    def tag[T](self, value: T) -> tuple[Self, T]:
+        return self, value
+
+class Child(Base): ...
+
+def check(cls: type[Base]) -> None:
+    assert_type(cls.identity(Child()), Base)
+
+assert_type(Base.tag(Child(), 1), tuple[Base, int])
+
+class Box[T]:
+    def identity(self) -> Self:
+        return self
+    def take(self, value: T) -> T:
+        return value
+
+class Concrete(Box[int]): ...
+class Descendant(Concrete): ...
+
+assert_type(Concrete.identity(Concrete()), Concrete)
+assert_type(Concrete.identity(Descendant()), Concrete)
+assert_type(Concrete.take(Concrete(), 1), int)
+"#,
+);
+
+// Implicit unknown receivers retain the nominal contract; explicit Any remains gradual.
+testcase!(
+    test_copied_self_unknown_receiver,
+    TestEnv::new().enable_unused_call_result_error(),
+    r#"
+from typing import Any, Self, assert_type, overload
+
+class Missing: ...
+
+class Timestamp:
+    @overload
+    def round(self, unit: str) -> Self | Missing: ...
+    @overload
+    def round(self, unit: int) -> Self | Missing: ...
+    def round(self, unit: str | int) -> Self | Missing:
+        return self
+
+class Duration:
+    def round(self) -> Self:
+        return self
+
+class Precise(Duration): ...
+
+def check(ts, duration) -> None:
+    assert_type(Timestamp.round(ts, "s"), Timestamp | Missing)
+    assert_type(Duration.round(duration), Duration)
+    Duration.round(duration)  # E: not used
+
+def explicit(ts: Any, duration: Any) -> None:
+    assert_type(Timestamp.round(ts, "s"), Timestamp | Missing)
+    assert_type(Duration.round(duration), Duration)
+
+assert_type(Duration.round(Precise()), Duration)
+
+def identity[T](value: T) -> T:
+    return value
+
+def ordinary(value) -> None:
+    assert_type(identity(value), Any)
+"#,
+);
+
+testcase!(
+    bug = "Unbound Self returns discard concrete receiver evidence",
+    test_copied_self_mixed_receiver_evidence,
+    r#"
+from typing import Any, Self, assert_type
+
+class Base:
+    def choose(self, other: Self) -> Self:
+        return self
+
+class Child(Base): ...
+
+def check(unknown, child: Child) -> None:
+    assert_type(Base.choose(child, unknown), Base)
+    assert_type(Base.choose(unknown, child), Base)
+    expected: Child = Base.choose(unknown, unknown)  # E: not assignable
+    assert_type(expected, Child)
+
+class Widget:
+    def __new__(cls) -> Self:
+        return super().__new__(cls)
+
+def constructor(cls) -> None:
+    assert_type(Widget.__new__(cls), Any)
+"#,
+);
 
 testcase!(
     test_use_self,
