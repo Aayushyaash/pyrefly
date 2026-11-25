@@ -223,6 +223,8 @@ pub struct RuleOverrides {
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     pub report_empty_abstract_usage: Option<Severity>,
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
+    pub report_inconsistent_constructor: Option<Severity>,
+    #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     pub report_abstract_usage: Option<Severity>,
 
     // Type checking rules
@@ -430,6 +432,10 @@ impl RuleOverrides {
         add(
             self.report_empty_abstract_usage,
             ErrorKind::DirectAbstractBaseInstantiation,
+        );
+        add(
+            self.report_inconsistent_constructor,
+            ErrorKind::InconsistentConstructor,
         );
         add(self.report_abstract_usage, ErrorKind::BadInstantiation);
         add(self.report_argument_type, ErrorKind::BadArgumentType);
