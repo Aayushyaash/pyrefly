@@ -2238,10 +2238,14 @@ impl<'a> Transaction<'a> {
             return None;
         };
         let class = class.dupe();
+        // A re-exported class, such as `_typeshed.NoneType`, has its `KeyTParams` in the module
+        // that defines it.
+        let class_module_data =
+            self.get_module(&handle.for_module(class.module_name(), class.module_path().dupe()));
         // A class without type parameters has no `KeyTParams`.
         let tparams = self
             .lookup_answer(
-                module_data,
+                class_module_data,
                 &KeyTParams(class.index()),
                 thread_state,
                 &answer_scope,
