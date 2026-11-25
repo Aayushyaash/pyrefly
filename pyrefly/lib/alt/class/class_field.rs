@@ -7138,6 +7138,103 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         })
     }
 
+    /// Look up a declared class-level getter without forcing synthesized fields on misses.
+    /// Instance-only attributes do not participate in Python's descriptor protocol, even
+    /// though ordinary attribute lookup models some of them as descriptors for compatibility.
+    fn get_descriptor_getter_field(
+        &self,
+        cls: &Class,
+    ) -> Option<WithDefiningClass<Cow<'_, ClassField>>> {
+        self.get_field_from_mro(cls, &dunder::GET, &|cls, name| {
+            let fields = self.get_class_fields(cls)?;
+            if !fields.contains(name)
+                || (!fields.is_field_initialized_on_class(name)
+                    && !cls.module_path().is_interface())
+                || self.is_typed_dict_class(cls)
+            {
+                return None;
+            }
+            self.get_non_synthesized_field_from_current_class_only(cls, name)
+        })
+    }
+
+    /// A base without `__get__` promises that reads return the stored object itself.
+    /// Each declaration preserves its direct-base contracts. Existing getter overrides
+    /// remain subject to ordinary override and multiple-inheritance consistency checks.
+    /// All advertised returns count, including both class and instance overloads.
+    pub(crate) fn check_descriptor_inheritance(
+        &self,
+        cls: &Class,
+        bases: &ClassBases,
+        errors: &ErrorCollector,
+    ) {
+        if bases.is_empty() {
+            return;
+        }
+        let Some(field) = self.get_descriptor_getter_field(cls) else {
+            return;
+        };
+        let cls_type = self.as_class_type_unchecked(cls);
+        let attribute = self.as_instance_attribute(
+            &dunder::GET,
+            field.value.as_ref(),
+            &Instance::of_class(&cls_type),
+        );
+        if matches!(
+            attribute,
+            ClassAttribute::Descriptor(..) | ClassAttribute::DescriptorRead { .. }
+        ) {
+            return;
+        }
+        let Ok(getter) = self.resolve_get_class_attr(
+            &dunder::GET,
+            attribute,
+            TextRange::default(),
+            &self.error_swallower(),
+            None,
+        ) else {
+            return;
+        };
+        let Some(return_type) = getter.callable_return_type(self.heap, self) else {
+            return;
+        };
+        for (parent, position) in bases.iter_with_positions() {
+            if parent.is(KnownClass::Object)
+                || self
+                    .get_metadata_for_class(parent.class_object())
+                    .has_base_any()
+                || self
+                    .get_descriptor_getter_field(parent.class_object())
+                    .is_some()
+            {
+                continue;
+            }
+            let want = parent.clone().to_type();
+            if self.is_subset_eq_with_reason(&return_type, &want).is_err() {
+                let range = if field.defining_class == *cls {
+                    self.get_class_fields(cls)
+                        .and_then(|fields| fields.field_decl_range(&dunder::GET))
+                        .expect("a declared getter has a declaration range")
+                } else {
+                    self.class_base_range(cls, position)
+                };
+                errors
+                    .error_builder(
+                        range,
+                        ErrorKind::BadDescriptorInheritance,
+                        format!(
+                            "Getter `{}.__get__` advertises return type `{}`, which is not assignable to non-descriptor base `{}`",
+                            cls.name(self),
+                            self.display(return_type.clone()),
+                            self.display(want),
+                        ),
+                    )
+                    .with_detail("A non-descriptor base's read contract returns the stored object, even when a subclass is assigned through that base type.".to_owned())
+                    .emit();
+            }
+        }
+    }
+
     fn resolve_descriptor_types(
         &self,
         desc: &Descriptor,

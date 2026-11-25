@@ -137,6 +137,8 @@ pub enum ErrorKind {
     /// A dataclass field is typed as a descriptor whose read-back type does not match
     /// what the synthesized `__init__` writes.
     BadDataclassDescriptor,
+    /// A descriptor's getter returns a type incompatible with a non-descriptor base.
+    BadDescriptorInheritance,
     /// An entry in user-defined `__all__` does not exist in the module.
     BadDunderAll,
     /// A function definition has some typing-related error.
@@ -704,6 +706,7 @@ impl ErrorKind {
             ErrorKind::AbstractMethodWithImplementation => Severity::Ignore,
             ErrorKind::AnyFunctionDecorator => Severity::Ignore,
             ErrorKind::AttributeAssignOnNever => Severity::Warn,
+            ErrorKind::BadDescriptorInheritance => Severity::Ignore,
             ErrorKind::BadOverrideDescriptor => Severity::Ignore,
             ErrorKind::CoverageMissing => Severity::Warn,
             ErrorKind::CoveragePartial => Severity::Warn,

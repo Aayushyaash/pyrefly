@@ -3797,6 +3797,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
             let class_bases = self.get_base_types_for_class(cls);
             let class_field_map = self.get_class_field_map(cls);
             self.check_consistent_override_for_class(cls, class_bases, &class_field_map, errors);
+            self.check_descriptor_inheritance(cls, class_bases, errors);
             self.check_variance_for_class(cls, class_bases, &class_field_map, errors);
             self.check_consistent_constructor(cls, errors);
             self.check_shape_flag_constructor_sources(cls, errors);

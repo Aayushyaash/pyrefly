@@ -11,15 +11,15 @@ use crate::testcase;
 // https://github.com/pyrefly-org/pyrefly/issues/1175
 // Nominal widening can hide a descriptor before it is installed on a class.
 testcase!(
-    bug = "Adding __get__ can violate a non-descriptor base's read contract",
     test_descriptor_substitution_widening,
+    TestEnv::new().enable_bad_descriptor_inheritance_error(),
     r#"
 from typing import assert_type
 
 class A: ...
 
 class B(A):
-    def __get__(self, instance: object | None, owner: type) -> int:
+    def __get__(self, instance: object | None, owner: type) -> int:  # E: not assignable to non-descriptor base `A`
         return 1
 
 def install(value: A) -> None:
@@ -43,6 +43,7 @@ assert_type(C.b, int)
 
 testcase!(
     test_descriptor_substitution_identity,
+    TestEnv::new().enable_bad_descriptor_inheritance_error(),
     r#"
 from typing import Self, assert_type
 
@@ -73,8 +74,8 @@ assert_type(C.arbitrary, int)
 );
 
 testcase!(
-    bug = "An instance getter can violate a base contract despite a safe class getter",
     test_descriptor_substitution_overloads,
+    TestEnv::new().enable_bad_descriptor_inheritance_error(),
     r#"
 from typing import Self, overload
 
@@ -82,7 +83,7 @@ class A: ...
 
 class B(A):
     @overload
-    def __get__(self, instance: None, owner: type) -> Self: ...
+    def __get__(self, instance: None, owner: type) -> Self: ...  # E: not assignable to non-descriptor base `A`
     @overload
     def __get__(self, instance: object, owner: type) -> int: ...
     def __get__(self, instance: object | None, owner: type) -> Self | int:
@@ -99,8 +100,8 @@ class Safe(A):
 );
 
 testcase!(
-    bug = "Descriptor return types need to preserve specialized non-descriptor bases",
     test_descriptor_substitution_generic_bases,
+    TestEnv::new().enable_bad_descriptor_inheritance_error(),
     r#"
 class A[T]:
     value: T
@@ -110,7 +111,7 @@ class Safe[T](A[T]):
         return self
 
 class Wrong(A[str]):
-    def __get__(self, instance: object | None, owner: type) -> A[int]:
+    def __get__(self, instance: object | None, owner: type) -> A[int]:  # E: not assignable to non-descriptor base `A[str]`
         return A[int]()
 
 class Bound(A[int]):
@@ -120,8 +121,8 @@ class Bound(A[int]):
 );
 
 testcase!(
-    bug = "Multiple inheritance can introduce a descriptor over a plain base",
     test_descriptor_substitution_inherited_getter,
+    TestEnv::new().enable_bad_descriptor_inheritance_error(),
     r#"
 from typing import Self
 
@@ -131,8 +132,8 @@ class Getter:
     def __get__(self, instance: object | None, owner: type) -> int:
         return 1
 
-class B(A, Getter): ...
-class Reversed(Getter, A): ...
+class B(A, Getter): ...  # E: not assignable to non-descriptor base `A`
+class Reversed(Getter, A): ...  # E: not assignable to non-descriptor base `A`
 
 class Identity:
     def __get__(self, instance: object | None, owner: type) -> Self:
@@ -145,6 +146,7 @@ class Descendant(Safe): ...
 
 testcase!(
     test_descriptor_substitution_existing_getter,
+    TestEnv::new().enable_bad_descriptor_inheritance_error(),
     r#"
 from typing import Any, Self
 
@@ -187,6 +189,7 @@ class Incompatible(ReturningSelf):
 
 testcase!(
     test_descriptor_substitution_class_members,
+    TestEnv::new().enable_bad_descriptor_inheritance_error(),
     r#"
 from typing import Callable
 
@@ -200,13 +203,14 @@ class AnnotationOnly(Plain):
     __get__: Callable[[object | None, type[object]], int]
 
 class IntroducesGet(InstanceOnly):
-    def __get__(self, instance: object | None, owner: type[object]) -> int:  # E: inconsistent
+    def __get__(self, instance: object | None, owner: type[object]) -> int:  # E: inconsistent  # E: non-descriptor base `InstanceOnly`
         return 1
 "#,
 );
 
 testcase!(
     test_descriptor_substitution_marker_bases,
+    TestEnv::new().enable_bad_descriptor_inheritance_error(),
     r#"
 from typing import Generic, Never, Protocol, TypeVar
 
@@ -230,7 +234,7 @@ class NeverDescriptor(Plain):
         raise RuntimeError
 
 class Meta(type):
-    def __get__(self, instance: object | None, owner: type[object]) -> int:
+    def __get__(self, instance: object | None, owner: type[object]) -> int:  # E: non-descriptor base `type`
         return 1
 
 class MetaclassOnly(Plain, metaclass=Meta): ...
@@ -239,6 +243,7 @@ class MetaclassOnly(Plain, metaclass=Meta): ...
 
 testcase!(
     test_descriptor_substitution_union_and_diamond,
+    TestEnv::new().enable_bad_descriptor_inheritance_error(),
     r#"
 from typing import assert_type
 
@@ -247,7 +252,7 @@ class Left(A): ...
 class Right(A): ...
 
 class B(Left, Right):
-    def __get__(self, instance: object | None, owner: type[object]) -> A | int:
+    def __get__(self, instance: object | None, owner: type[object]) -> A | int:  # E: non-descriptor base `Left`  # E: non-descriptor base `Right`
         return 1
 
 class C:
