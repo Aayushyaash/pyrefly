@@ -315,6 +315,8 @@ pub struct RuleOverrides {
 
     // Coroutine rules
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
+    pub report_unused_call_result: Option<Severity>,
+    #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     pub report_unused_coroutine: Option<Severity>,
 
     // Attribute/override rules
@@ -501,6 +503,7 @@ impl RuleOverrides {
         add(self.report_undefined_variable, ErrorKind::UnknownName);
         add(self.report_unbound_variable, ErrorKind::UnboundName);
         add(self.report_unhashable, ErrorKind::Unhashable);
+        add(self.report_unused_call_result, ErrorKind::UnusedCallResult);
         add(self.report_unused_coroutine, ErrorKind::UnusedCoroutine);
 
         // Call rules
