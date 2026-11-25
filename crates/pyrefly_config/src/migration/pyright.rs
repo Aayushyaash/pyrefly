@@ -488,6 +488,10 @@ impl RuleOverrides {
             ErrorKind::ImplicitlyDefinedAttribute,
         );
         add(
+            self.report_uninitialized_instance_variable,
+            ErrorKind::UninitializedInstanceVariable,
+        );
+        add(
             self.report_unknown_parameter_type,
             ErrorKind::ImplicitAnyParameter,
         );
