@@ -263,6 +263,8 @@ pub struct RuleOverrides {
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     pub report_typed_dict_not_required_access: Option<Severity>,
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
+    pub report_property_type_mismatch: Option<Severity>,
+    #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     pub report_private_usage: Option<Severity>,
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     pub report_deprecated: Option<Severity>,
@@ -470,6 +472,10 @@ impl RuleOverrides {
         add(self.report_return_type, ErrorKind::InvalidYield);
         add(self.report_private_usage, ErrorKind::ProtectedAccess);
         add(self.report_missing_super_call, ErrorKind::MissingSuperCall);
+        add(
+            self.report_property_type_mismatch,
+            ErrorKind::PropertyTypeMismatch,
+        );
         add(self.report_deprecated, ErrorKind::Deprecated);
         add(
             self.report_incompatible_method_override,
