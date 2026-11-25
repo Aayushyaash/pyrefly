@@ -2378,14 +2378,14 @@ impl ConfigFile {
     }
 
     pub fn parse_config(config_str: &str) -> anyhow::Result<ConfigFile> {
-        parse_toml_document::<ConfigFile>(config_str)
+        parse_toml_document::<ConfigFile>(config_str, &[])
     }
 
     /// Parse a pyproject.toml file. Returns a tuple of:
     /// - `Option<ConfigFile>`: the pyrefly config, if `[tool.pyrefly]` was present
     /// - `bool`: whether Python tool sections like `[tool.ruff]` were detected
     fn parse_pyproject_toml(config_str: &str) -> anyhow::Result<(Option<ConfigFile>, bool)> {
-        let pyproject = parse_toml_document::<PyProject>(config_str)?;
+        let pyproject = parse_toml_document::<PyProject>(config_str, &["tool", "pyrefly"])?;
         let has_python_tools = pyproject.has_python_tools();
         Ok((pyproject.pyrefly(), has_python_tools))
     }
@@ -2565,8 +2565,46 @@ fn merge_config_layer(base: &mut toml::Table, child: toml::Table) {
     }
 }
 
-fn parse_toml_document<T: DeserializeOwned>(config_str: &str) -> anyhow::Result<T> {
-    toml_edit::de::from_str::<T>(config_str).map_err(anyhow::Error::new)
+fn parse_toml_document<T: DeserializeOwned>(
+    config_str: &str,
+    config_path: &[&str],
+) -> anyhow::Result<T> {
+    toml_edit::de::from_str::<T>(config_str).map_err(|err| {
+        let hint = duplicate_alias_hint(config_str, config_path, err.message());
+        let err = anyhow::Error::new(err);
+        match hint {
+            Some(hint) => err.context(hint),
+            None => err,
+        }
+    })
+}
+
+/// Serde only names the canonical field in a duplicate-field error. Recover the
+/// spellings from the config table, since other TOML tables may use the same keys.
+fn duplicate_alias_hint(config_str: &str, config_path: &[&str], message: &str) -> Option<String> {
+    let field = message
+        .strip_prefix("duplicate field `")?
+        .strip_suffix('`')?;
+    let document = toml_edit::Document::parse(config_str).ok()?;
+    let mut table: &dyn toml_edit::TableLike = document.as_table();
+    for key in config_path {
+        table = table.get(key)?.as_table_like()?;
+    }
+    let keys: Vec<_> = once(field)
+        .chain(
+            CONFIG_KEY_ALIASES
+                .iter()
+                .filter_map(|&(alias, canonical)| (canonical == field).then_some(alias)),
+        )
+        .filter(|key| table.contains_key(key))
+        .collect();
+    if keys.len() < 2 {
+        return None;
+    }
+    let spellings = keys.iter().map(|key| format!("`{key}`")).join(", ");
+    Some(format!(
+        "conflicting config keys: {spellings}; use only one spelling of `{field}`"
+    ))
 }
 
 /// The source span of the value responsible for a failed TOML parse of `T`, if
@@ -3645,22 +3683,26 @@ mod tests {
 
     #[test]
     fn test_toml_parse_error_for_duplicate_config_alias() {
-        for settings in [
-            "site-packages-path = []\nsite-package-path = [\"stubs\"]\n",
-            "site_package_path = []\nsite-package-path = [\"stubs\"]\n",
+        for (settings, expected_keys) in [
+            (
+                "site-packages-path = []\nsite-package-path = [\"stubs\"]\n",
+                "`site-packages-path`, `site-package-path`",
+            ),
+            (
+                "site_package_path = []\nsite-package-path = [\"stubs\"]\n",
+                "`site-package-path`, `site_package_path`",
+            ),
         ] {
             let standalone_error = ConfigFile::parse_config(settings).unwrap_err();
             let pyproject_error =
                 ConfigFile::parse_pyproject_toml(&format!("[tool.pyrefly]\n{settings}"))
                     .unwrap_err();
             for error in [standalone_error, pyproject_error] {
-                // Both spellings are in the file, but the error only names the canonical key.
-                assert!(
-                    error
-                        .to_string()
-                        .trim_end()
-                        .ends_with("duplicate field `site-packages-path`"),
-                    "{error}"
+                assert_eq!(
+                    error.to_string(),
+                    format!(
+                        "conflicting config keys: {expected_keys}; use only one spelling of `site-packages-path`"
+                    ),
                 );
             }
         }
