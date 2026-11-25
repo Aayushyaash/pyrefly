@@ -265,6 +265,8 @@ pub struct RuleOverrides {
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     pub report_possibly_unbound_variable: Option<Severity>,
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
+    pub report_missing_super_call: Option<Severity>,
+    #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     pub report_uninitialized_instance_variable: Option<Severity>,
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     #[expect(unused)]
@@ -437,6 +439,7 @@ impl RuleOverrides {
         add(self.report_return_type, ErrorKind::BadReturn);
         add(self.report_return_type, ErrorKind::InvalidYield);
         add(self.report_private_usage, ErrorKind::ProtectedAccess);
+        add(self.report_missing_super_call, ErrorKind::MissingSuperCall);
         add(self.report_deprecated, ErrorKind::Deprecated);
         add(
             self.report_incompatible_method_override,
