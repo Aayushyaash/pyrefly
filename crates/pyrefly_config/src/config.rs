@@ -3644,6 +3644,29 @@ mod tests {
     }
 
     #[test]
+    fn test_toml_parse_error_for_duplicate_config_alias() {
+        for settings in [
+            "site-packages-path = []\nsite-package-path = [\"stubs\"]\n",
+            "site_package_path = []\nsite-package-path = [\"stubs\"]\n",
+        ] {
+            let standalone_error = ConfigFile::parse_config(settings).unwrap_err();
+            let pyproject_error =
+                ConfigFile::parse_pyproject_toml(&format!("[tool.pyrefly]\n{settings}"))
+                    .unwrap_err();
+            for error in [standalone_error, pyproject_error] {
+                // Both spellings are in the file, but the error only names the canonical key.
+                assert!(
+                    error
+                        .to_string()
+                        .trim_end()
+                        .ends_with("duplicate field `site-packages-path`"),
+                    "{error}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn test_toml_parse_error_recovers_value_span() {
         // The offending value lives in a `#[serde(flatten)]`ed field, so
         // `toml_edit` drops its span; `toml_error_span` recovers it by probing.
