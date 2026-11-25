@@ -445,6 +445,7 @@ impl RuleOverrides {
             self.report_inconsistent_constructor,
             ErrorKind::InconsistentConstructor,
         );
+        add(self.report_abstract_usage, ErrorKind::AbstractMethodCall);
         add(self.report_abstract_usage, ErrorKind::BadInstantiation);
         add(self.report_argument_type, ErrorKind::BadArgumentType);
         add(self.report_argument_type, ErrorKind::InvalidArgument);
