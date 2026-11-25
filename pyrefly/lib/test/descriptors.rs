@@ -8,6 +8,256 @@
 use crate::test::util::TestEnv;
 use crate::testcase;
 
+// https://github.com/pyrefly-org/pyrefly/issues/1175
+// Nominal widening can hide a descriptor before it is installed on a class.
+testcase!(
+    bug = "Adding __get__ can violate a non-descriptor base's read contract",
+    test_descriptor_substitution_widening,
+    r#"
+from typing import assert_type
+
+class A: ...
+
+class B(A):
+    def __get__(self, instance: object | None, owner: type) -> int:
+        return 1
+
+def install(value: A) -> None:
+    class C:
+        a: A = value
+    assert_type(C.a, A)
+    assert_type(C().a, A)
+
+value: A = B()
+install(B())
+install(value)
+
+class C:
+    a: A = B()
+    b: B = B()
+
+assert_type(C.a, A)
+assert_type(C.b, int)
+"#,
+);
+
+testcase!(
+    test_descriptor_substitution_identity,
+    r#"
+from typing import Self, assert_type
+
+class A: ...
+
+class Identity(A):
+    def __get__(self, instance: object | None, owner: type) -> Self:
+        return self
+
+class BaseValue(A):
+    def __get__(self, instance: object | None, owner: type) -> A:
+        return A()
+
+class Descriptor:
+    def __get__(self, instance: object | None, owner: type) -> int:
+        return 1
+
+class C:
+    identity = Identity()
+    base_value = BaseValue()
+    arbitrary = Descriptor()
+
+assert_type(C.identity, Identity)
+assert_type(C().identity, Identity)
+assert_type(C.base_value, A)
+assert_type(C.arbitrary, int)
+"#,
+);
+
+testcase!(
+    bug = "An instance getter can violate a base contract despite a safe class getter",
+    test_descriptor_substitution_overloads,
+    r#"
+from typing import Self, overload
+
+class A: ...
+
+class B(A):
+    @overload
+    def __get__(self, instance: None, owner: type) -> Self: ...
+    @overload
+    def __get__(self, instance: object, owner: type) -> int: ...
+    def __get__(self, instance: object | None, owner: type) -> Self | int:
+        return self if instance is None else 1
+
+class Safe(A):
+    @overload
+    def __get__(self, instance: None, owner: type) -> Self: ...
+    @overload
+    def __get__(self, instance: object, owner: type) -> A: ...
+    def __get__(self, instance: object | None, owner: type) -> A:
+        return self
+"#,
+);
+
+testcase!(
+    bug = "Descriptor return types need to preserve specialized non-descriptor bases",
+    test_descriptor_substitution_generic_bases,
+    r#"
+class A[T]:
+    value: T
+
+class Safe[T](A[T]):
+    def __get__(self, instance: object | None, owner: type) -> A[T]:
+        return self
+
+class Wrong(A[str]):
+    def __get__(self, instance: object | None, owner: type) -> A[int]:
+        return A[int]()
+
+class Bound(A[int]):
+    def __get__[T: A[int]](self, instance: T, owner: type[T]) -> T:
+        return instance
+"#,
+);
+
+testcase!(
+    bug = "Multiple inheritance can introduce a descriptor over a plain base",
+    test_descriptor_substitution_inherited_getter,
+    r#"
+from typing import Self
+
+class A: ...
+
+class Getter:
+    def __get__(self, instance: object | None, owner: type) -> int:
+        return 1
+
+class B(A, Getter): ...
+class Reversed(Getter, A): ...
+
+class Identity:
+    def __get__(self, instance: object | None, owner: type) -> Self:
+        return self
+
+class Safe(A, Identity): ...
+class Descendant(Safe): ...
+"#,
+);
+
+testcase!(
+    test_descriptor_substitution_existing_getter,
+    r#"
+from typing import Any, Self
+
+class A:
+    def __get__(self, instance: object | None, owner: type) -> int:
+        return 1
+
+class B(A):
+    def __get__(self, instance: object | None, owner: type) -> int:
+        return 2
+
+class Wrong(A):
+    def __get__(self, instance: object | None, owner: type) -> str:  # E: inconsistent
+        return "wrong"
+
+class Plain: ...
+
+class Dynamic(Plain):
+    def __get__(self, instance: object | None, owner: type) -> Any:
+        return 1
+
+class UnknownBase(Any): ...
+
+class UnknownGetter(UnknownBase):
+    def __get__(self, instance: object | None, owner: type) -> int:
+        return 1
+
+class NonCallable(Plain):
+    __get__ = None
+
+class ReturningSelf(Plain):
+    def __get__(self, instance: object | None, owner: type) -> Self:
+        return self
+
+class Incompatible(ReturningSelf):
+    def __get__(self, instance: object | None, owner: type) -> int:  # E: inconsistent
+        return 1
+"#,
+);
+
+testcase!(
+    test_descriptor_substitution_class_members,
+    r#"
+from typing import Callable
+
+class Plain: ...
+
+class InstanceOnly(Plain):
+    def __init__(self) -> None:
+        self.__get__: Callable[[object | None, type[object]], int] = lambda instance, owner: 1
+
+class AnnotationOnly(Plain):
+    __get__: Callable[[object | None, type[object]], int]
+
+class IntroducesGet(InstanceOnly):
+    def __get__(self, instance: object | None, owner: type[object]) -> int:  # E: inconsistent
+        return 1
+"#,
+);
+
+testcase!(
+    test_descriptor_substitution_marker_bases,
+    r#"
+from typing import Generic, Never, Protocol, TypeVar
+
+T = TypeVar("T")
+
+class GenericDescriptor(Generic[T]):
+    def __get__(self, instance: object | None, owner: type[object]) -> int:
+        return 1
+
+class DescriptorProtocol(Protocol):
+    def __get__(self, instance: object | None, owner: type[object]) -> int: ...
+
+class ObjectDescriptor(object):
+    def __get__(self, instance: object | None, owner: type[object]) -> int:
+        return 1
+
+class Plain: ...
+
+class NeverDescriptor(Plain):
+    def __get__(self, instance: object | None, owner: type[object]) -> Never:
+        raise RuntimeError
+
+class Meta(type):
+    def __get__(self, instance: object | None, owner: type[object]) -> int:
+        return 1
+
+class MetaclassOnly(Plain, metaclass=Meta): ...
+"#,
+);
+
+testcase!(
+    test_descriptor_substitution_union_and_diamond,
+    r#"
+from typing import assert_type
+
+class A: ...
+class Left(A): ...
+class Right(A): ...
+
+class B(Left, Right):
+    def __get__(self, instance: object | None, owner: type[object]) -> A | int:
+        return 1
+
+class C:
+    value: A = B()
+
+assert_type(C.value, A)
+assert_type(C().value, A)
+"#,
+);
+
 testcase!(
     test_property_subclass_nominal_class_access,
     r#"
