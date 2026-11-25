@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use anyhow::Context as _;
 use pyrefly_python::sys_info::PythonVersion;
 use pyrefly_util::globs::Glob;
 use pyrefly_util::globs::Globs;
@@ -100,8 +101,12 @@ use crate::migration::sub_configs::SubConfigs;
 use crate::migration::type_checking_mode;
 
 impl PyrightConfig {
-    pub(super) fn parse_json(text: &str) -> anyhow::Result<Self> {
+    pub(super) fn parse_json(text: &str, basedpyright: Option<bool>) -> anyhow::Result<Self> {
         let mut config: Self = serde_jsonrc::from_str(text)?;
+        if let Some(basedpyright) = basedpyright {
+            config.is_basedpyright = basedpyright;
+            return Ok(config);
+        }
         // Some BasedPyright-only keys have no Pyrefly equivalent and are not
         // retained by the typed parser.
         let raw: Value = serde_jsonrc::from_str(text)?;
@@ -792,6 +797,24 @@ pub fn parse_pyproject_toml(raw_file: &str) -> anyhow::Result<PyrightConfig> {
         (Some(_), Some(_)) => Err(anyhow::anyhow!(BothPyrightSectionsError {})),
         (None, None) => Err(anyhow::anyhow!(PyrightNotFoundError {})),
     }
+}
+
+/// Parse the explicitly selected section without interpreting other checkers' settings.
+pub(super) fn parse_pyproject_section(
+    raw_file: &str,
+    section: &str,
+) -> anyhow::Result<PyrightConfig> {
+    let mut doc: toml::Table = toml::from_str(raw_file)?;
+    let settings = doc
+        .get_mut("tool")
+        .and_then(toml::Value::as_table_mut)
+        .and_then(|tool| tool.remove(section))
+        .with_context(|| format!("No [tool.{section}] section found in pyproject.toml"))?;
+    let mut config: PyrightConfig = settings
+        .try_into()
+        .with_context(|| format!("While parsing [tool.{section}]"))?;
+    config.is_basedpyright = section == "basedpyright";
+    Ok(config)
 }
 
 #[cfg(test)]
