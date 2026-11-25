@@ -558,6 +558,10 @@ impl RuleOverrides {
             ErrorKind::UnknownReturnType,
         );
         add(self.report_unknown_lambda_type, ErrorKind::UnknownFromError);
+        add(
+            self.report_invalid_type_var_use,
+            ErrorKind::VarianceMismatch,
+        );
         add(self.report_invalid_type_var_use, ErrorKind::InvalidTypeVar);
         add(self.report_invalid_cast, ErrorKind::InvalidCast);
         add(
