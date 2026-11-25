@@ -199,6 +199,8 @@ impl From<DiagnosticLevelOrBool> for Severity {
 pub struct RuleOverrides {
     // Import rules
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
+    pub report_import_cycles: Option<Severity>,
+    #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     pub report_missing_imports: Option<Severity>,
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     pub report_missing_module_source: Option<Severity>,
@@ -399,6 +401,7 @@ impl RuleOverrides {
         // For each ErrorKind, there are one or more RuleOverrides fields.
         // The ErrorDisplayConfig map has an entry for an ErrorKind if at least one of the RuleOverrides for that ErrorKind is present.
         // The value of that ErrorKind's entry is found by or'ing together the present RuleOverrides.
+        add(self.report_import_cycles, ErrorKind::ImportCycle);
         add(self.report_missing_imports, ErrorKind::MissingImport);
         add(self.report_missing_module_source, ErrorKind::MissingSource);
         add(
