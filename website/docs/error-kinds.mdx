@@ -278,7 +278,7 @@ class C:
 
 ## bad-descriptor-inheritance
 
-Default severity: `ignore`
+Default severity: `warn`
 
 A descriptor's `__get__` return type is incompatible with a base class that has no getter.
 Widening the descriptor to that base type can hide its descriptor behavior when it is stored on a class.
@@ -296,7 +296,7 @@ Returning `Self` preserves that contract. Bases with getters remain subject to o
 This conservative signature check does not select overloads for a particular receiver or owner. Implementation-inheritance mixins may therefore require a named suppression or a different base.
 It checks declarations in checked files, not structural protocol assignments or unchecked third-party declarations; setter contracts and function method-binding behavior are outside its scope. Dynamic or unresolved getters and `Any` follow gradual typing.
 
-The check is ignored by default, a warning in `strict`, and an error in `all`. Enable it explicitly with `bad-descriptor-inheritance = "warn"` under `[errors]`.
+The check is a warning by default and an error in `strict` and `all`. Disable it with `bad-descriptor-inheritance = "ignore"` under `[errors]`.
 It is independently configurable: existing `bad-override` settings do not enable or disable it. Nominal subtyping is unchanged.
 
 ## bad-dunder-all

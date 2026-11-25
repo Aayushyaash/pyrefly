@@ -17,7 +17,7 @@
     "bad-class-definition": ["basic", "legacy", "default", "strict", "all"],
     "bad-context-manager": ["legacy", "default", "strict", "all"],
     "bad-dataclass-descriptor": ["legacy", "default", "strict", "all"],
-    "bad-descriptor-inheritance": ["strict", "all"],
+    "bad-descriptor-inheritance": ["legacy", "default", "strict", "all"],
     "bad-dunder-all": ["legacy", "default", "strict", "all"],
     "bad-function-definition": ["legacy", "default", "strict", "all"],
     "bad-index": ["legacy", "default", "strict", "all"],

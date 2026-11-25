@@ -224,7 +224,7 @@ impl Preset {
             Preset::Default => ConfigBase::default(),
             Preset::Strict => {
                 let errors = HashMap::from([
-                    (ErrorKind::BadDescriptorInheritance, Severity::Warn),
+                    (ErrorKind::BadDescriptorInheritance, Severity::Error),
                     (ErrorKind::BadOverrideDescriptor, Severity::Error),
                     (ErrorKind::DirectAbstractBaseInstantiation, Severity::Error),
                     (ErrorKind::ImplicitAny, Severity::Error),
@@ -650,9 +650,9 @@ mod tests {
         for (preset, expected) in [
             (Preset::Off, Severity::Ignore),
             (Preset::Basic, Severity::Ignore),
-            (Preset::Legacy, Severity::Ignore),
-            (Preset::Default, Severity::Ignore),
-            (Preset::Strict, Severity::Warn),
+            (Preset::Legacy, Severity::Warn),
+            (Preset::Default, Severity::Warn),
+            (Preset::Strict, Severity::Error),
             (Preset::All, Severity::Error),
         ] {
             let defaults = preset.apply().errors.unwrap_or_default();

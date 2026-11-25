@@ -706,7 +706,7 @@ impl ErrorKind {
             ErrorKind::AbstractMethodWithImplementation => Severity::Ignore,
             ErrorKind::AnyFunctionDecorator => Severity::Ignore,
             ErrorKind::AttributeAssignOnNever => Severity::Warn,
-            ErrorKind::BadDescriptorInheritance => Severity::Ignore,
+            ErrorKind::BadDescriptorInheritance => Severity::Warn,
             ErrorKind::BadOverrideDescriptor => Severity::Ignore,
             ErrorKind::CoverageMissing => Severity::Warn,
             ErrorKind::CoveragePartial => Severity::Warn,
