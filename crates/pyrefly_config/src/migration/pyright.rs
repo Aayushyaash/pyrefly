@@ -578,6 +578,10 @@ impl RuleOverrides {
         add(self.report_unused_coroutine, ErrorKind::UnusedCoroutine);
 
         // Call rules
+        add(
+            self.report_call_issue,
+            ErrorKind::PotentialBadKeywordArgument,
+        );
         add(self.report_call_issue, ErrorKind::MissingArgument);
         add(self.report_call_issue, ErrorKind::BadArgumentCount);
         add(
