@@ -928,6 +928,30 @@ include = ["basedpyright.py"]
     }
 
     #[test]
+    fn test_explicit_pyright_with_basedpyright_baseline() -> anyhow::Result<()> {
+        let tmp = tempfile::tempdir()?;
+        let path = tmp.path().join("pyrightconfig.json");
+        fs_anyhow::write(&path, "{}")?;
+        write_baseline(tmp.path(), ".basedpyright/baseline.json")?;
+        for input in [tmp.path(), &path] {
+            let result = config_migration(input, MigrationSource::Pyright, false, false)?;
+            let written = fs_anyhow::read_to_string(&result.config_path)?;
+            assert!(written.contains("preset = \"all\""));
+            assert!(result.migrated_baseline);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_explicit_mypy_with_pyright_json_path() -> anyhow::Result<()> {
+        let tmp = tempfile::tempdir()?;
+        let path = tmp.path().join("pyrightconfig.json");
+        fs_anyhow::write(&path, "{}")?;
+        assert!(config_migration(&path, MigrationSource::MyPy, true, false).is_ok());
+        Ok(())
+    }
+
+    #[test]
     fn test_run_pyproject_migrate_from_mypy_missing() {
         // When migrate_from is MyPy but only pyright config exists, migration should fail
         // (no fallback to pyright).
