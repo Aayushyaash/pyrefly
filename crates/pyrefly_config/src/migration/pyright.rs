@@ -356,6 +356,8 @@ pub struct RuleOverrides {
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     pub report_match_not_exhaustive: Option<Severity>,
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
+    pub report_unused_except: Option<Severity>,
+    #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     pub report_unreachable: Option<Severity>,
 
     // Import rules
@@ -625,6 +627,10 @@ impl RuleOverrides {
         add(
             self.report_match_not_exhaustive,
             ErrorKind::NonExhaustiveMatch,
+        );
+        add(
+            self.report_unused_except,
+            ErrorKind::UnreachableExceptClause,
         );
         add(self.report_unreachable, ErrorKind::Unreachable);
         add(self.report_unreachable, ErrorKind::UnreachableExceptClause);
