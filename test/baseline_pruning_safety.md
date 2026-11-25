@@ -16,36 +16,34 @@ bad-assignment
 [0]
 ```
 
-Known bug: pruning removes the hidden error while the import is broken.
+Pruning leaves the baseline unchanged while the import is broken.
 See https://github.com/pyrefly-org/pyrefly/issues/5760.
 
 ```scrut {output_stream: stderr}
 $ cd $TMPDIR/baseline_prune_safety && \
 > $PYREFLY check main.py --prune-baseline --summary=none --output-format=omit-errors
- INFO Removed 1 unused suppression from the baseline file
+ INFO Skipped baseline pruning because new errors remain
 [1]
 ```
 
 ```scrut {output_stream: stdout}
 $ cd $TMPDIR/baseline_prune_safety && cmp -s original.json baseline.json
-[1]
+[0]
 ```
 
 ## Display filters do not make a broken import safe
-
-Known bug: filtering out the new error still allows pruning.
 
 ```scrut {output_stream: stderr}
 $ cd $TMPDIR/baseline_prune_safety && \
 > cp original.json baseline.json && \
 > $PYREFLY check main.py --prune-baseline --only=bad-assignment --summary=none
- INFO Removed 1 unused suppression from the baseline file
+ INFO Skipped baseline pruning because new errors remain
 [0]
 ```
 
 ```scrut {output_stream: stdout}
 $ cd $TMPDIR/baseline_prune_safety && cmp -s original.json baseline.json
-[1]
+[0]
 ```
 
 ## Warnings below the failure threshold do not block pruning
@@ -60,19 +58,17 @@ $ cd $TMPDIR/baseline_prune_safety && \
 
 ## Warnings at the failure threshold block pruning
 
-Known bug: warnings that fail the check still allow pruning.
-
 ```scrut {output_stream: stderr}
 $ cd $TMPDIR/baseline_prune_safety && \
 > cp original.json baseline.json && \
 > $PYREFLY check main.py --prune-baseline --warn=missing-import --min-severity=warn --summary=none --output-format=omit-errors
- INFO Removed 1 unused suppression from the baseline file
+ INFO Skipped baseline pruning because new errors remain
 [1]
 ```
 
 ```scrut {output_stream: stdout}
 $ cd $TMPDIR/baseline_prune_safety && cmp -s original.json baseline.json
-[1]
+[0]
 ```
 
 ## Baseline matches do not block pruning even when displayed as errors

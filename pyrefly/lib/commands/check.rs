@@ -448,7 +448,7 @@ struct OutputArgs {
     #[arg(long, group = "baseline_action")]
     update_baseline: bool,
 
-    /// Rewrite the baseline file to drop stale entries without recording new errors.
+    /// Drop stale baseline entries only when no new errors meet `--min-severity`.
     /// Existing entries for files outside the current check are retained.
     #[arg(long, group = "baseline_action")]
     prune_baseline: bool,
@@ -2289,6 +2289,14 @@ impl CheckArgs {
 
         let (baseline_status, unused_baseline_entries, retained_baseline_entries) =
             baseline_apply_result.resolve(self.output.update_baseline)?;
+        // New errors can hide existing diagnostics, so their absence does not prove a row
+        // stale. Display filters must not make an incomplete check safe to prune.
+        let baseline_prune_blocked = self.output.prune_baseline
+            && (config_errors_count > 0
+                || ordinary
+                    .iter()
+                    .chain(&collected.directives)
+                    .any(|e| e.severity() >= defaults.min_severity));
         let only_filter = defaults
             .only
             .as_ref()
@@ -2358,8 +2366,9 @@ impl CheckArgs {
         // We update the baseline file if requested, after reporting any new
         // errors using the old baseline. Directives are structurally excluded
         // — they live in `directives`, not `ordinary_errors`.
-        // `--prune-baseline` rewrites the file only when there is something to drop.
-        let rewriting_baseline = self.output.prune_baseline && unused_baseline_entries > 0;
+        // `--prune-baseline` rewrites only when the check is safe and there is something to drop.
+        let rewriting_baseline =
+            self.output.prune_baseline && !baseline_prune_blocked && unused_baseline_entries > 0;
         if self.output.update_baseline {
             let baseline_path = defaults
                 .baseline
@@ -2391,6 +2400,8 @@ impl CheckArgs {
                 "Removed {} from the baseline file",
                 count(unused_baseline_entries, "unused suppression")
             );
+        } else if baseline_prune_blocked {
+            info!("Skipped baseline pruning because new errors remain");
         } else if self.output.prune_baseline {
             // `--prune-baseline` was requested but there was nothing to drop, so no
             // file was rewritten. Confirm the no-op so scripted/CI runs are not left
