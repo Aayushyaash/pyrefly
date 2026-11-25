@@ -25,6 +25,7 @@ use pyrefly_types::heap::TypeHeap;
 use pyrefly_types::literal::LitStyle;
 use pyrefly_types::quantified::Quantified;
 use pyrefly_types::quantified::QuantifiedKind;
+use pyrefly_types::quantified::QuantifiedOrigin;
 use pyrefly_types::shaped_array::IntTuple;
 use pyrefly_types::simplify::intersect;
 use pyrefly_types::special_form::SpecialForm;
@@ -82,6 +83,7 @@ use crate::types::module::ModuleType;
 use crate::types::simplify::simplify_tuples_and_distribute_unpacking;
 use crate::types::simplify::unions;
 use crate::types::simplify::unions_with_literals;
+use crate::types::types::AnyStyle;
 use crate::types::types::Substitution;
 use crate::types::types::TParams;
 use crate::types::types::Type;
@@ -2396,7 +2398,16 @@ impl Solver {
                         err.push(e.clone());
                     }
                     let original_bounds = mem::take(bounds);
-                    if let Some(bound) = self.solve_bounds(original_bounds.clone(), env) {
+                    if let Some(mut bound) = self.solve_bounds(original_bounds.clone(), env) {
+                        // Once all arguments are matched, an implicit unknown supplies no
+                        // receiver-specific Self evidence. Keep its nominal contract without
+                        // replacing concrete evidence or an explicitly gradual answer.
+                        if matches!(bound, Type::Any(AnyStyle::Implicit))
+                            && q.identity().origin == QuantifiedOrigin::UnboundMethodSelf
+                            && let Restriction::Bound(fallback) = q.restriction()
+                        {
+                            bound = fallback.clone();
+                        }
                         if has_overload_captures {
                             solved_quantified_names_by_var.insert(v, q.name().clone());
                         }

@@ -2108,6 +2108,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 if matches!(
                     q.identity().origin,
                     QuantifiedOrigin::Synthetic { is_self: true }
+                        | QuantifiedOrigin::UnboundMethodSelf
                 ) && let Restriction::Bound(bound) = q.restriction() =>
             {
                 Some(bound.clone())
