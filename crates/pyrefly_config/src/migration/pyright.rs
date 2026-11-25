@@ -12,6 +12,7 @@ use pyrefly_python::sys_info::PythonVersion;
 use pyrefly_util::globs::Glob;
 use pyrefly_util::globs::Globs;
 use serde::Deserialize;
+use serde_json::Value;
 use serde_with::FromInto;
 use serde_with::serde_as;
 
@@ -99,8 +100,41 @@ use crate::migration::sub_configs::SubConfigs;
 use crate::migration::type_checking_mode;
 
 impl PyrightConfig {
-    pub fn parse(text: &str) -> anyhow::Result<Self> {
-        Ok(serde_jsonrc::from_str::<Self>(text)?)
+    pub(super) fn parse_json(text: &str) -> anyhow::Result<Self> {
+        let mut config: Self = serde_jsonrc::from_str(text)?;
+        // Some BasedPyright-only keys have no Pyrefly equivalent and are not
+        // retained by the typed parser.
+        let raw: Value = serde_jsonrc::from_str(text)?;
+        let has_basedpyright_rule = |settings: &Value| {
+            [
+                "reportAny",
+                "reportEmptyAbstractUsage",
+                "reportExplicitAny",
+                "reportIgnoreCommentWithoutRule",
+                "reportImplicitAbstractClass",
+                "reportImplicitRelativeImport",
+                "reportIncompatibleUnannotatedOverride",
+                "reportInvalidAbstractMethod",
+                "reportInvalidCast",
+                "reportPrivateLocalImportUsage",
+                "reportUnannotatedClassAttribute",
+                "reportUnsafeMultipleInheritance",
+            ]
+            .iter()
+            .any(|key| settings.get(*key).is_some())
+        };
+        config.is_basedpyright = matches!(
+            config.type_checking_mode,
+            Some(TypeCheckingMode::Recommended | TypeCheckingMode::All)
+        ) || ["allowedUntypedLibraries", "baselineFile", "failOnWarnings"]
+            .iter()
+            .any(|key| raw.get(*key).is_some())
+            || has_basedpyright_rule(&raw)
+            || raw
+                .get("executionEnvironments")
+                .and_then(Value::as_array)
+                .is_some_and(|envs| envs.iter().any(has_basedpyright_rule));
+        Ok(config)
     }
 
     pub fn convert(self) -> ConfigFile {

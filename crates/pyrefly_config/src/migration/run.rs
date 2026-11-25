@@ -102,16 +102,16 @@ pub fn find_and_migrate_in_memory(
         return Ok(None);
     };
     if path.file_name() == Some("pyrightconfig.json".as_ref()) {
-        let raw_file = fs_anyhow::read_to_string(&path)
-            .with_context(|| format!("While reading pyright config at {}", path.display()))?;
-        let pyr = PyrightConfig::parse(&raw_file)
-            .with_context(|| format!("While parsing pyright config at {}", path.display()))?;
-        Ok(Some((
-            // unlike with pyproject.toml we have no easy way to tell whether a pyrightconfig.json
-            // is supposed to be for pyright or basedpyright, so we just assume regular pyright
-            pyr.convert(),
-            MigratedFromKind::Pyright(MigratedConfigSource::DedicatedFile),
-        )))
+        let pyr = load_pyright_json(&path)?;
+        let basedpyright = pyr.is_basedpyright;
+        let cfg = pyr.convert();
+        let source = MigratedConfigSource::DedicatedFile;
+        let kind = if basedpyright {
+            MigratedFromKind::BasedPyright(source, cfg.root.preset.unwrap_or(Preset::Default))
+        } else {
+            MigratedFromKind::Pyright(source)
+        };
+        Ok(Some((cfg, kind)))
     } else if path.file_name() == Some("mypy.ini".as_ref()) {
         let cfg = parse_mypy_config(&path)?;
         Ok(Some((
@@ -228,6 +228,19 @@ pub struct MigrationResult {
     /// A basedpyright baseline file exists on disk. The Pyrefly `baseline` key is
     /// not written here; init adds it only after the user agrees.
     pub migrated_baseline: bool,
+}
+
+/// Load the config file shared by Pyright and BasedPyright. A colocated
+/// default baseline is evidence of BasedPyright even if the settings are shared.
+fn load_pyright_json(path: &Path) -> anyhow::Result<PyrightConfig> {
+    let raw_file = fs_anyhow::read_to_string(path)
+        .with_context(|| format!("While reading Pyright config at {}", path.display()))?;
+    let mut config = PyrightConfig::parse_json(&raw_file)
+        .with_context(|| format!("While parsing Pyright config at {}", path.display()))?;
+    config.is_basedpyright |= path
+        .parent()
+        .is_some_and(|dir| dir.join(BASEDPYRIGHT_BASELINE_FILE).is_file());
+    Ok(config)
 }
 
 /// `baselineFile` when set, otherwise basedpyright's default location.
@@ -405,14 +418,19 @@ impl Args {
         let (config, baseline) = if original_config_path.file_name()
             == Some("pyrightconfig.json".as_ref())
         {
+            let pyr = load_pyright_json(&original_config_path)?;
+            let checker = if pyr.is_basedpyright {
+                "BasedPyright"
+            } else {
+                "Pyright"
+            };
             info!(
-                "Migrating pyright config file from: `{}`",
+                "Migrating {checker} config file from: `{}`",
                 original_config_path.display()
             );
-            let raw_file = fs_anyhow::read_to_string(&original_config_path)?;
-            let pyr = PyrightConfig::parse(&raw_file)?;
-            // assume pyrightconfig.json is for pyright, not basedpyright
-            let baseline = Some(pyright_baseline_path(pyr.baseline_file.clone()));
+            let baseline = pyr
+                .is_basedpyright
+                .then(|| pyright_baseline_path(pyr.baseline_file.clone()));
             (pyr.convert(), baseline)
         } else if original_config_path.file_name() == Some("mypy.ini".as_ref()) {
             info!(
@@ -593,36 +611,36 @@ mod tests {
                 "recommended mode",
                 r#"{"typeCheckingMode": "recommended"}"#,
                 false,
-                None,
-                None,
+                Some(Preset::All),
+                Some("all"),
             ),
             (
                 "all mode",
                 r#"{"typeCheckingMode": "all"}"#,
                 false,
-                None,
-                None,
+                Some(Preset::All),
+                Some("all"),
             ),
             (
                 "disabled rule",
                 r#"{"reportAny": false}"#,
                 false,
-                None,
-                None,
+                Some(Preset::All),
+                Some("all"),
             ),
             (
                 "unmapped rule",
                 r#"{"reportIgnoreCommentWithoutRule": "warning"}"#,
                 false,
-                None,
-                None,
+                Some(Preset::All),
+                Some("all"),
             ),
             (
                 "execution environment rule",
                 r#"{"executionEnvironments": [{"root": "src", "reportExplicitAny": "none"}]}"#,
                 false,
-                None,
-                None,
+                Some(Preset::All),
+                Some("all"),
             ),
             (
                 "explicit settings",
@@ -631,13 +649,19 @@ mod tests {
                 Some(Preset::Off),
                 Some("linux"),
             ),
-            ("existing baseline", "{}", true, None, None),
+            (
+                "existing baseline",
+                "{}",
+                true,
+                Some(Preset::All),
+                Some("all"),
+            ),
             (
                 "configured baseline",
                 r#"{"baselineFile": "custom.json"}"#,
                 false,
-                None,
-                None,
+                Some(Preset::All),
+                Some("all"),
             ),
         ];
         for (label, source, baseline, preset, platform) in cases {
@@ -649,11 +673,13 @@ mod tests {
 
             let (config, kind) =
                 find_and_migrate_in_memory(tmp.path())?.expect("should find pyrightconfig.json");
-            assert_eq!(
-                kind,
-                MigratedFromKind::Pyright(MigratedConfigSource::DedicatedFile),
-                "{label}"
-            );
+            let expected_kind = match preset {
+                Some(preset) => {
+                    MigratedFromKind::BasedPyright(MigratedConfigSource::DedicatedFile, preset)
+                }
+                None => MigratedFromKind::Pyright(MigratedConfigSource::DedicatedFile),
+            };
+            assert_eq!(kind, expected_kind, "{label}");
             assert_eq!(config.root.preset, preset, "{label}");
             assert!(!tmp.path().join("pyrefly.toml").exists(), "{label}");
 

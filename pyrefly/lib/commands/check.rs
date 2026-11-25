@@ -1488,8 +1488,8 @@ fn write_unconfigured_upsell<W: Write>(
                 MigratedFromKind::Pyright(MigratedConfigSource::PyprojectToml) => {
                     ("`[tool.pyright]` in your `pyproject.toml`", Preset::Default)
                 }
-                MigratedFromKind::BasedPyright(MigratedConfigSource::DedicatedFile, _) => {
-                    unreachable!("no such thing as basedpyrightconfig.json")
+                MigratedFromKind::BasedPyright(MigratedConfigSource::DedicatedFile, preset) => {
+                    ("your BasedPyright `pyrightconfig.json`", preset)
                 }
                 MigratedFromKind::BasedPyright(MigratedConfigSource::PyprojectToml, preset) => {
                     ("`[tool.basedpyright]` in your `pyproject.toml`", preset)

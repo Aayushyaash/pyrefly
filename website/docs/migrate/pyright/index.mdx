@@ -57,9 +57,10 @@ once one exists, so both checkers keep working and you can back out at any
 point.
 
 :::info If using basedpyright
-If pyrefly detects `[tool.basedpyright]` instead of `[tool.pyright]` in your `pyproject.toml`:
-- `python-platform` defaults to `"all"`
-- `preset` defaults to `"all"`
+Pyrefly uses BasedPyright defaults (`python-platform = "all"` and `preset = "all"`)
+for `[tool.basedpyright]` and for `pyrightconfig.json` with BasedPyright-specific
+settings or a nearby `.basedpyright/baseline.json`. Otherwise, it treats the JSON
+as Pyright config.
 :::
 
 ## 2. Check the config was mapped correctly
