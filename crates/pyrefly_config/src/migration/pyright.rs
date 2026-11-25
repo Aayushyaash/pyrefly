@@ -215,6 +215,8 @@ pub struct RuleOverrides {
 
     // Abstract/instantiation rules
     #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
+    pub report_invalid_abstract_method: Option<Severity>,
+    #[serde_as(as = "Option<FromInto<DiagnosticLevelOrBool>>")]
     pub report_abstract_usage: Option<Severity>,
 
     // Type checking rules
@@ -401,6 +403,10 @@ impl RuleOverrides {
         add(self.report_explicit_any, ErrorKind::ExplicitAny);
         add(self.report_any, ErrorKind::ExplicitAnyUse);
         add(self.report_any, ErrorKind::AnyFunctionDecorator);
+        add(
+            self.report_invalid_abstract_method,
+            ErrorKind::InvalidAbstractMethod,
+        );
         add(self.report_abstract_usage, ErrorKind::BadInstantiation);
         add(self.report_argument_type, ErrorKind::BadArgumentType);
         add(self.report_argument_type, ErrorKind::InvalidArgument);
