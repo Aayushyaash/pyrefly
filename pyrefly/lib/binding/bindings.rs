@@ -42,6 +42,7 @@ use ruff_python_ast::ExprName;
 use ruff_python_ast::Identifier;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Parameter;
+use ruff_python_ast::PythonVersion;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtClassDef;
 use ruff_python_ast::StmtFunctionDef;
@@ -1204,8 +1205,23 @@ impl Bindings {
         let (scope_trace, unset_nodes) = builder.scopes.finish();
 
         let semantic_errors = builder.semantic_syntax_errors.into_inner();
+        // Ruff also reports `NonModuleImportStar` for a `lazy from x import *` outside module
+        // scope, which always gets `LazyImportNotAllowed` for the same statement. CPython reports
+        // only the `lazy` error.
+        let invalid_lazy_imports: SmallSet<TextRange> = semantic_errors
+            .iter()
+            .filter(|error| {
+                matches!(
+                    error.kind,
+                    SemanticSyntaxErrorKind::LazyImportNotAllowed { .. }
+                )
+            })
+            .map(|error| error.range)
+            .collect();
         for error in semantic_errors {
-            if Self::should_emit_semantic_syntax_error(&error) {
+            let duplicate = matches!(error.kind, SemanticSyntaxErrorKind::NonModuleImportStar(_))
+                && invalid_lazy_imports.contains(&error.range);
+            if !duplicate && Self::should_emit_semantic_syntax_error(&error) {
                 builder
                     .errors
                     .error_builder(error.range, ErrorKind::InvalidSyntax, error.to_string())
@@ -1348,6 +1364,11 @@ impl Bindings {
             | SemanticSyntaxErrorKind::DuplicateMatchClassAttribute(_)
             | SemanticSyntaxErrorKind::DuplicateTypeParameter
             | SemanticSyntaxErrorKind::NonModuleImportStar(_) => true,
+            // Before Python 3.15, the parser already reports every `lazy` import as unsupported
+            // syntax.
+            SemanticSyntaxErrorKind::LazyImportNotAllowed { .. }
+            | SemanticSyntaxErrorKind::LazyImportStar
+            | SemanticSyntaxErrorKind::LazyFutureImport => error.python_version >= PythonVersion::PY315,
             // TODO: the following errors aren't being emitted even when enabled
             // we should investigate that
             SemanticSyntaxErrorKind::WriteToDebug(_)
@@ -1370,10 +1391,7 @@ impl Bindings {
             | SemanticSyntaxErrorKind::AnnotatedNonlocal(_)
             | SemanticSyntaxErrorKind::NonlocalWithoutBinding(_)
             // Newly added by the ruff upgrade; left disabled to preserve existing behavior.
-            // pyrefly does not model `lazy` imports, and the others need triage before enabling.
-            | SemanticSyntaxErrorKind::LazyImportNotAllowed { .. }
-            | SemanticSyntaxErrorKind::LazyImportStar
-            | SemanticSyntaxErrorKind::LazyFutureImport
+            // These need triage before enabling.
             | SemanticSyntaxErrorKind::NamedExpressionInComprehensionIterable
             | SemanticSyntaxErrorKind::NamedExpressionInClassBodyComprehension
             | SemanticSyntaxErrorKind::TypeParameterDefaultOrder(_)
@@ -3897,8 +3915,16 @@ impl<'a> SemanticSyntaxContext for BindingsBuilder<'a> {
     }
 
     fn lazy_import_context(&self) -> Option<LazyImportContext> {
-        // pyrefly does not model `lazy` imports, so there is never a lazy-import context.
-        None
+        // CPython checks for a `try` statement in the current scope first.
+        if self.scopes.in_try() {
+            Some(LazyImportContext::TryExceptBlocks)
+        } else if self.scopes.in_class_body() {
+            Some(LazyImportContext::Class)
+        } else if self.scopes.in_function_scope() {
+            Some(LazyImportContext::Function)
+        } else {
+            None
+        }
     }
 
     fn in_notebook(&self) -> bool {
