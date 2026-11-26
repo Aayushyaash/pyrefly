@@ -1101,6 +1101,39 @@ def test_sync() -> Callable[[int], int]:
 );
 
 testcase!(
+    test_plain_kwargs_optional_parameter_subtyping,
+    r#"
+from typing import Protocol
+class IntKwargs(Protocol):
+    def __call__(self, **kwargs: int) -> str: ...
+def implementation(*, label: str = "", **kwargs: int) -> str:
+    return label.upper()
+def compatible(*, label: int = 0, **kwargs: int) -> str:
+    return str(label)
+def widened(*, label: float = 0, **kwargs: int) -> str:
+    return str(label)
+# An IntKwargs caller may pass label=1, which fails in implementation at runtime.
+wrong: IntKwargs = implementation  # E: is not assignable to `IntKwargs`
+same_type: IntKwargs = compatible
+wider_type: IntKwargs = widened
+"#,
+);
+
+testcase!(
+    test_plain_kwargs_optional_parameter_override,
+    r#"
+class Parent:
+    def f(self, **kwargs: str) -> None: ...
+class NarrowOptional(Parent):
+    def f(self, *, verbose: bool = False, **kwargs: str) -> None: ...  # E: Class member `NarrowOptional.f` overrides parent class `Parent` in an inconsistent manner
+class CompatibleOptional(Parent):
+    def f(self, *, verbose: str = "", **kwargs: str) -> None: ...
+class WiderOptional(Parent):
+    def f(self, *, verbose: object = None, **kwargs: str) -> None: ...
+"#,
+);
+
+testcase!(
     test_assignability_both_typed_dicts,
     r#"
 from typing import TypedDict, Unpack, Protocol
