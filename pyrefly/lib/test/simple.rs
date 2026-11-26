@@ -3280,19 +3280,53 @@ def f(b: Box[datetime.date], local: Local, xs: list[int]) -> None:
 
 // PEP 798: unpacking in comprehensions, added in Python 3.15.
 testcase!(
-    bug = "Unpacking in comprehensions (PEP 798) is not inferred",
     test_unpacking_in_comprehensions,
     TestEnv::new_with_version(PythonVersion::new(3, 15, 0)),
     r#"
-from typing import Generator, assert_type
-def f(lists: list[list[int]], sets: list[set[str]], dicts: list[dict[str, bytes]]):
-    assert_type([*l for l in lists], list[int])  # E: assert_type(list[*Unknown], list[int]) failed  # E: Expected a type form
-    assert_type({*s for s in sets}, set[str])  # E: assert_type(set[*Unknown], set[str]) failed  # E: not hashable  # E: Expected a type form
-    assert_type({**d for d in dicts}, dict[str, bytes])  # E: assert_type(dict[Unknown, dict[str, bytes]], dict[str, bytes]) failed
-    assert_type((*l for l in lists), Generator[int, None, None])  # E: assert_type(Generator[*Unknown], Generator[int]) failed  # E: Expected a type form
-    x: list[object] = [*l for l in lists]  # E: Expected a type form
+from typing import AsyncGenerator, AsyncIterable, Generator, Literal, TypedDict, assert_type
+class TD(TypedDict):
+    a: int
+def f(lists: list[list[int]], sets: list[set[str]], dicts: list[dict[str, bytes]], tds: list[TD]):
+    assert_type([*l for l in lists], list[int])
+    assert_type({*s for s in sets}, set[str])
+    assert_type({**d for d in dicts}, dict[str, bytes])
+    assert_type({**td for td in tds}, dict[str, object])
+    assert_type((*l for l in lists), Generator[int, None, None])
+    assert_type((*("a", 1) for _ in lists), Generator[str | int, None, None])
+    x: list[object] = [*l for l in lists]
     y: dict[str, object] = {**d for d in dicts}
-    [*1 for _ in lists]  # E: Expected a type form, got instance of `Literal[1]`
-    {**1 for _ in lists}
+    z: dict[Literal["a"], int] = {**{"a": 1} for _ in lists}
+    [*1 for _ in lists]  # E: Expected an iterable, got `int`
+    {**1 for _ in lists}  # E: Expected a mapping, got Literal[1]
+async def g(lists: AsyncIterable[list[int]]):
+    assert_type((*l async for l in lists), AsyncGenerator[int, None])
+"#,
+);
+
+testcase!(
+    test_unpacking_in_nested_comprehensions,
+    TestEnv::new_with_version(PythonVersion::new(3, 15, 0)),
+    r#"
+from typing import Generator, assert_type
+def f(lists: list[list[list[int]]], dicts: list[list[dict[str, bytes]]]):
+    assert_type([*[*l for l in ls] for ls in lists], list[int])
+    assert_type({*{*l for l in ls} for ls in lists}, set[int])
+    assert_type({**{**d for d in ds} for ds in dicts}, dict[str, bytes])
+    assert_type((*(*l for l in ls) for ls in lists), Generator[int, None, None])
+    assert_type([*l for ls in lists for l in ls], list[int])
+"#,
+);
+
+// Before Python 3.15, the parser reports the syntax, and inference still gives the 3.15 types.
+testcase!(
+    test_unpacking_in_comprehensions_before_py315,
+    TestEnv::new_with_version(PythonVersion::new(3, 14, 0)),
+    r#"
+from typing import Generator, assert_type
+def f(lists: list[list[int]], dicts: list[dict[str, bytes]]):
+    assert_type([*l for l in lists], list[int])  # E: Cannot use iterable unpacking in a list comprehension on Python 3.14
+    assert_type({*l for l in lists}, set[int])  # E: Cannot use iterable unpacking
+    assert_type({**d for d in dicts}, dict[str, bytes])  # E: Cannot use
+    assert_type((*l for l in lists), Generator[int, None, None])  # E: Cannot use iterable unpacking
 "#,
 );

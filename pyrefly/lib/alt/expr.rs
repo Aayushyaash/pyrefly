@@ -1443,13 +1443,15 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 |hint| self.decompose_list(hint),
                 |elem_hint, hint| {
                     self.ifs_infer(&x.generators, errors);
-                    let elem_ty = self.expr_infer_with_hint_promote(
-                        &x.elt,
+                    let elem_tys = self.elts_infer(
+                        slice::from_ref(&x.elt),
                         HintRef::with_ty_opt(hint, elem_hint.as_ref()),
+                        false,
                         errors,
-                        HintCoercion::BestEffort,
+                        None,
                     );
-                    self.heap.mk_class_type(self.stdlib.list(elem_ty))
+                    self.heap
+                        .mk_class_type(self.stdlib.list(self.unions(elem_tys)))
                 },
             ),
             Expr::SetComp(x) => self.infer_with_decomposed_hint(
@@ -1457,50 +1459,71 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 |hint| self.decompose_set(hint),
                 |elem_hint, hint| {
                     self.ifs_infer(&x.generators, errors);
-                    let elem_hint = HintRef::with_ty_opt(hint, elem_hint.as_ref());
-                    let elem_ty = self.expr_infer_with_hint(&x.elt, elem_hint, errors);
-                    self.check_hashable(&elem_ty, x.elt.range(), "Set element", errors);
-                    let elem_ty = self.promote_with_hint(
-                        elem_ty,
-                        x.elt.range(),
-                        elem_hint,
-                        HintCoercion::BestEffort,
+                    let elem_tys = self.elts_infer(
+                        slice::from_ref(&x.elt),
+                        HintRef::with_ty_opt(hint, elem_hint.as_ref()),
+                        true,
+                        errors,
+                        None,
                     );
-                    self.heap.mk_class_type(self.stdlib.set(elem_ty))
+                    self.heap
+                        .mk_class_type(self.stdlib.set(self.unions(elem_tys)))
                 },
             ),
             Expr::DictComp(x) => self.infer_with_decomposed_hint(
                 hint,
                 |hint| self.decompose_dict(hint),
                 |decomposed_hints, hint| {
-                    let (key_hint, value_hint) = decomposed_hints.unwrap_or_default();
-                    let key_hint = key_hint.as_ref().and_then(|key_hint| {
+                    let (key_hint_ty, value_hint_ty) = decomposed_hints.unwrap_or_default();
+                    let key_hint = key_hint_ty.as_ref().and_then(|key_hint| {
                         hint.as_ref()
                             .map(|hint| HintRef::new(key_hint, hint.errors()))
                     });
-                    let value_hint = value_hint.as_ref().and_then(|value_hint| {
+                    let value_hint = value_hint_ty.as_ref().and_then(|value_hint| {
                         hint.as_ref()
                             .map(|hint| HintRef::new(value_hint, hint.errors()))
                     });
                     self.ifs_infer(&x.generators, errors);
-                    // `key` is only `None` for a syntactically invalid dict comprehension
-                    // (parser error recovery); the parser already reports the syntax error.
-                    let key_ty = match &x.key {
-                        Some(key) => self.dict_key_infer_with_hint(
-                            key,
-                            key_hint,
-                            errors,
-                            HintCoercion::BestEffort,
-                            None,
+                    // A missing `key` means `{**value for ...}`, which unpacks a mapping.
+                    let (key_ty, value_ty) = match &x.key {
+                        Some(key) => (
+                            self.dict_key_infer_with_hint(
+                                key,
+                                key_hint,
+                                errors,
+                                HintCoercion::BestEffort,
+                                None,
+                            ),
+                            self.expr_infer_with_hint_promote(
+                                &x.value,
+                                value_hint,
+                                errors,
+                                HintCoercion::BestEffort,
+                            ),
                         ),
-                        None => self.heap.mk_any_error(),
+                        None => {
+                            let (_, key_ty, value_ty) = self.dict_unpack_infer(
+                                &x.value,
+                                key_hint_ty.as_ref(),
+                                value_hint_ty.as_ref(),
+                                errors,
+                            );
+                            (
+                                self.promote_with_hint(
+                                    key_ty,
+                                    x.value.range(),
+                                    key_hint,
+                                    HintCoercion::BestEffort,
+                                ),
+                                self.promote_with_hint(
+                                    value_ty,
+                                    x.value.range(),
+                                    value_hint,
+                                    HintCoercion::BestEffort,
+                                ),
+                            )
+                        }
                     };
-                    let value_ty = self.expr_infer_with_hint_promote(
-                        &x.value,
-                        value_hint,
-                        errors,
-                        HintCoercion::BestEffort,
-                    );
                     self.heap.mk_class_type(self.stdlib.dict(key_ty, value_ty))
                 },
             ),
@@ -1509,14 +1532,19 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 |hint| self.decompose_generator(hint).map(|(y, _, _)| y),
                 |yield_hint, hint| {
                     self.ifs_infer(&x.generators, errors);
-                    let yield_ty = self
-                        .expr_infer_impl(
-                            &x.elt,
-                            HintRef::with_ty_opt(hint, yield_hint.as_ref()),
+                    let yield_hint = HintRef::with_ty_opt(hint, yield_hint.as_ref());
+                    let yield_ty = if x.elt.is_starred_expr() {
+                        self.unions(self.elts_infer(
+                            slice::from_ref(&x.elt),
+                            yield_hint,
+                            false,
                             errors,
                             None,
-                        )
-                        .into_ty();
+                        ))
+                    } else {
+                        self.expr_infer_impl(&x.elt, yield_hint, errors, None)
+                            .into_ty()
+                    };
                     if self.generator_expr_is_async(x) {
                         self.heap.mk_class_type(
                             self.stdlib.async_generator(yield_ty, self.heap.mk_none()),
@@ -2412,6 +2440,38 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         self.dict_items_infer(range, flattened_items, hint, errors, iteration_element)
     }
 
+    /// Infers the operand of `**value` in a dict display or comprehension. Returns the operand
+    /// type and the key and value types of the mapping. If the operand is not a mapping, this
+    /// reports an error and returns error types for the key and value.
+    /// The key and value hints propagate into the operand so that compound expressions keep
+    /// literal key types; without them the keys widen to `str`.
+    fn dict_unpack_infer(
+        &self,
+        value: &Expr,
+        key_hint: Option<&Type>,
+        value_hint: Option<&Type>,
+        errors: &ErrorCollector,
+    ) -> (Type, Type, Type) {
+        let ty = if let (Some(key_hint), Some(value_hint)) = (key_hint, value_hint) {
+            let mapping_hint = self
+                .heap
+                .mk_class_type(self.stdlib.mapping(key_hint.clone(), value_hint.clone()));
+            self.expr_infer_with_hint(value, Some(HintRef::soft(&mapping_hint)), errors)
+        } else {
+            self.expr_infer(value, errors)
+        };
+        let (key_ty, value_ty) = self.unwrap_mapping_for_unpacking(&ty).unwrap_or_else(|| {
+            let error = self.error(
+                errors,
+                value.range(),
+                ErrorKind::InvalidArgument,
+                format!("Expected a mapping, got {}", self.display(ty.clone())),
+            );
+            (error.clone(), error)
+        });
+        (ty, key_ty, value_ty)
+    }
+
     /// Infers a type for a dictionary literal with the specified items & an optional contextual hint
     /// In order to preserve information about heterogeneous key/value types, we will infer an anonymous
     /// typed dict if the following conditions are met:
@@ -2559,27 +2619,14 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     }
                 }
                 None => {
-                    // Propagate the key and value hints into the unpacked operand so compound
-                    // expressions keep literal key types; without them the keys widen to `str`.
-                    let ty = if let (Some(key_hint), Some(value_hint)) = (&key_hint, &value_hint) {
-                        let mapping_hint = self.heap.mk_class_type(
-                            self.stdlib.mapping(key_hint.clone(), value_hint.clone()),
-                        );
-                        self.expr_infer_with_hint(
-                            &x.value,
-                            Some(HintRef::soft(&mapping_hint)),
-                            errors,
-                        )
-                    } else {
-                        self.expr_infer(&x.value, errors)
-                    };
-                    let mapping_types = iteration_keys
-                        .as_ref()
-                        .and_then(|_| self.unwrap_mapping_for_unpacking(&ty));
-                    if let Some((key, _)) = &mapping_types
-                        && let Some(keys) = &mut iteration_keys
-                    {
-                        keys.push(key.clone());
+                    let (ty, key_t, value_t) = self.dict_unpack_infer(
+                        &x.value,
+                        key_hint.as_ref(),
+                        value_hint.as_ref(),
+                        errors,
+                    );
+                    if let Some(keys) = &mut iteration_keys {
+                        keys.push(key_t.clone());
                     }
                     // If the unpacked value is an anonymous typed dict, merge its fields.
                     // Later fields override earlier ones with the same name.
@@ -2592,9 +2639,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                                 value_tys.push(field.ty.clone());
                             }
                         }
-                    } else if let Some((key_t, value_t)) =
-                        mapping_types.or_else(|| self.unwrap_mapping_for_unpacking(&ty))
-                    {
+                    } else {
                         // Non-anonymous-typed-dict unpacking disables anonymous typed dict creation
                         can_create_anonymous_typed_dict = false;
                         if !key_t.is_error() {
@@ -2614,17 +2659,6 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                             } else {
                                 value_tys.push(value_t);
                             }
-                        }
-                    } else {
-                        can_create_anonymous_typed_dict = false;
-                        let ty = self.error(
-                            errors,
-                            x.value.range(),
-                            ErrorKind::InvalidArgument,
-                            format!("Expected a mapping, got {}", self.display(ty)),
-                        );
-                        if let Some(keys) = &mut iteration_keys {
-                            keys.push(ty);
                         }
                     }
                 }
