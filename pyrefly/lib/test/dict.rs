@@ -395,6 +395,17 @@ assert_type(frozendict({"x": 1}, y=2), frozendict[str, int])
 "#,
 );
 
+// https://github.com/pyrefly-org/pyrefly/issues/5289
+testcase!(
+    bug = "`frozendict` should be covariant in its value type",
+    test_frozendict_value_covariant,
+    TestEnv::new_with_version(PythonVersion::new(3, 15, 0)),
+    r#"
+fd: frozendict[str, int] = frozendict(a=1)
+fd2: frozendict[str, int | None] = fd  # E: `frozendict[str, int]` is not assignable to `frozendict[str, int | None]`
+"#,
+);
+
 // https://github.com/pyrefly-org/pyrefly/issues/5632
 testcase!(
     test_dict_unpack_conditional_literalstring_keys,
