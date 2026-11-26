@@ -22,6 +22,47 @@ use crate::functools_testcase;
 use crate::test::util::TestEnv;
 use crate::testcase;
 
+testcase!(
+    bug = "Overloaded partials retain bound TypedDict keys",
+    test_partial_overload_bound_typed_dict_keys,
+    TestEnv::new().enable_strict_partial_subtyping(),
+    r#"
+from functools import partial
+from typing import Callable, Literal, TypedDict, Unpack, overload
+class OpenConn(TypedDict):
+    connection: str
+class ClosedConn(TypedDict, closed=True):
+    connection: str
+class ExtraConn(TypedDict, extra_items=int):
+    connection: str
+@overload
+def cache(cursor: int, *, kind: Literal["open"], **kwargs: Unpack[OpenConn]) -> None: ...
+@overload
+def cache(cursor: int, *, kind: Literal["closed"], **kwargs: Unpack[ClosedConn]) -> None: ...
+@overload
+def cache(cursor: int, *, kind: Literal["extra"], **kwargs: Unpack[ExtraConn]) -> None: ...
+def cache(cursor: int, *, kind: str, **kwargs: object) -> None: ...
+open_partial = partial(cache, kind="open", connection="c")
+closed_partial = partial(cache, kind="closed", connection="c")
+extra_partial = partial(cache, kind="extra", connection="c")
+open_partial(0)  # E: Missing argument `connection`
+open_partial(0, arbitrary=1)  # E: Missing argument `connection`  # E: Unexpected keyword argument `arbitrary`
+open_partial(0, connection="override")
+closed_partial(0)  # E: Missing argument `connection`
+closed_partial(0, bogus=1)  # E: Missing argument `connection`  # E: Unexpected keyword argument `bogus`
+extra_partial(0, count=1)  # E: Missing argument `connection`
+extra_partial(0, count="wrong")  # E: Missing argument `connection`  # E: Keyword argument `count` with type `Literal['wrong']`
+open_callback: Callable[[int], None] = open_partial
+closed_callback: Callable[[int], None] = closed_partial
+extra_callback: Callable[[int], None] = extra_partial
+
+def plain_cache(cursor: int, **kwargs: Unpack[OpenConn]) -> None: ...
+plain_partial = partial(plain_cache, connection="c")
+plain_partial(0)
+plain_partial(0, arbitrary=1)  # E: Unexpected keyword argument `arbitrary`
+"#,
+);
+
 // ===== Basic: bind nothing / positional / keyword =====
 
 functools_testcase!(
