@@ -5,6 +5,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+use pyrefly_python::sys_info::PythonVersion;
+
+use crate::test::util::TestEnv;
 use crate::testcase;
 
 testcase!(
@@ -654,4 +657,18 @@ testcase!(
 from typing import TypeVarTuple
 Ts = TypeVarTuple("Ts", int, str)  # E: Unexpected positional argument  # E: Unexpected positional argument
     "#,
+);
+
+// Python 3.15 adds `bound`, `covariant`, `contravariant`, and `infer_variance` to `TypeVarTuple`.
+testcase!(
+    bug = "`bound` is reported as an unexpected keyword",
+    test_type_var_tuple_py315_keywords,
+    TestEnv::new_with_version(PythonVersion::new(3, 15, 0)),
+    r#"
+from typing import TypeVarTuple
+Ts = TypeVarTuple("Ts", bound=int)  # E: Unexpected keyword argument `bound` to TypeVarTuple
+Us = TypeVarTuple("Us", covariant=True)
+Vs = TypeVarTuple("Vs", contravariant=True)
+Ws = TypeVarTuple("Ws", infer_variance=True)
+"#,
 );
