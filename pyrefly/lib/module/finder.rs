@@ -3728,23 +3728,19 @@ mod tests {
     fn test_replace_untyped_imports_with_any_keeps_executable_lookup() {
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
-        // `requests` is untyped on disk but Pyrefly bundles typeshed stubs for it.
+        // `six` is untyped on disk but Pyrefly bundles typeshed stubs for it.
         // The IDE finds the source behind those stubs with an executable-filtered
         // search, which must keep reaching the source.
         TestPath::setup_test_directory(
             root,
             vec![TestPath::dir(
                 "site_packages",
-                vec![TestPath::dir(
-                    "requests",
-                    vec![TestPath::file("__init__.py")],
-                )],
+                vec![TestPath::dir("six", vec![TestPath::file("__init__.py")])],
             )],
         );
 
-        let mut config =
-            ConfigFile::parse_config("replace-untyped-imports-with-any = [\"requests\"]")
-                .expect("test configuration should parse");
+        let mut config = ConfigFile::parse_config("replace-untyped-imports-with-any = [\"six\"]")
+            .expect("test configuration should parse");
         config.source = ConfigSource::File(root.join("pyrefly.toml"));
         config.interpreters.skip_interpreter_query = true;
         config.python_environment.site_package_path = Some(vec![root.join("site_packages")]);
@@ -3753,7 +3749,7 @@ mod tests {
 
         let unfiltered = find_import_with_mode(
             &config,
-            ModuleName::from_str("requests"),
+            ModuleName::from_str("six"),
             ImportLookupMode::TypeChecking,
             FindImportOptions::new(&DirEntryCache::new()),
         );
@@ -3762,19 +3758,19 @@ mod tests {
                 unfiltered,
                 FindingOrError::Error(FindError::UntypedImport(..))
             ),
-            "Expected `requests` to be untyped"
+            "Expected `six` to be untyped"
         );
 
         let executable = find_import_with_mode(
             &config,
-            ModuleName::from_str("requests"),
+            ModuleName::from_str("six"),
             ImportLookupMode::style(ModuleStyle::Executable),
             FindImportOptions::new(&DirEntryCache::new()),
         );
         assert_eq!(
             executable.finding(),
             Some(ModulePath::filesystem(
-                root.join("site_packages/requests/__init__.py")
+                root.join("site_packages/six/__init__.py")
             ))
         );
     }
@@ -3787,13 +3783,13 @@ mod tests {
 
         let result = find_import_with_mode(
             &config,
-            ModuleName::from_str("requests"),
+            ModuleName::from_str("six"),
             ImportLookupMode::TypeChecking,
             FindImportOptions::new(&DirEntryCache::new()),
         );
         assert!(
             matches!(result, FindingOrError::Finding(_)),
-            "Expected to find 'requests' from typeshed third party stubs without a config file, but got: {:?}",
+            "Expected to find 'six' from typeshed third party stubs without a config file, but got: {:?}",
             result
         );
     }
@@ -3808,7 +3804,7 @@ mod tests {
 
         let result = find_import_with_mode(
             &config,
-            ModuleName::from_str("requests"),
+            ModuleName::from_str("six"),
             ImportLookupMode::TypeChecking,
             FindImportOptions::new(&DirEntryCache::new()),
         );
@@ -3817,7 +3813,7 @@ mod tests {
                 &result,
                 FindingOrError::Error(FindError::MissingImport(_, _))
             ),
-            "Expected NotFound error for 'requests' with real config file but package not installed, but got: {:?}",
+            "Expected NotFound error for 'six' with real config file but package not installed, but got: {:?}",
             result
         );
     }
@@ -3831,13 +3827,13 @@ mod tests {
         assert!(!config.from_real_config_file());
         let result = find_import_with_mode(
             &config,
-            ModuleName::from_str("requests"),
+            ModuleName::from_str("six"),
             ImportLookupMode::TypeChecking,
             FindImportOptions::new(&DirEntryCache::new()),
         );
         assert!(
             matches!(result, FindingOrError::Finding(_)),
-            "Expected to find 'requests' from typeshed third party stubs with a marker config file, but got: {:?}",
+            "Expected to find 'six' from typeshed third party stubs with a marker config file, but got: {:?}",
             result
         );
     }
@@ -3849,9 +3845,9 @@ mod tests {
         config_synthetic.rewrite_with_path_to_config(&config_root);
 
         let prefixes_synthetic = find_import_prefixes(&config_synthetic, ModuleName::from_str(""));
-        let has_requests_synthetic = prefixes_synthetic.iter().any(|m| m.as_str() == "requests");
+        let has_six_synthetic = prefixes_synthetic.iter().any(|m| m.as_str() == "six");
         assert!(
-            has_requests_synthetic,
+            has_six_synthetic,
             "find_import_prefixes should include typeshed third party stubs without a real config file"
         );
 
@@ -3859,9 +3855,9 @@ mod tests {
         config_file.rewrite_with_path_to_config(&config_root);
         assert!(config_file.from_real_config_file());
         let prefixes_file = find_import_prefixes(&config_file, ModuleName::from_str(""));
-        let has_requests_file = prefixes_file.iter().any(|m| m.as_str() == "requests");
+        let has_six_file = prefixes_file.iter().any(|m| m.as_str() == "six");
         assert!(
-            !has_requests_file,
+            !has_six_file,
             "find_import_prefixes should NOT include typeshed third party stubs with a real config file"
         );
     }
@@ -4248,7 +4244,7 @@ mod tests {
             &["main.py"],
             &[
                 "mypy_extensions.py",
-                "requests/__init__.py",
+                "six/__init__.py",
                 "pandas/__init__.py",
                 "google/protobuf/descriptor.py",
             ],
@@ -4261,8 +4257,8 @@ mod tests {
                 ModulePath::filesystem(root.join("deps/mypy_extensions.py")),
             ),
             (
-                "requests",
-                ModulePath::filesystem(root.join("deps/requests/__init__.py")),
+                "six",
+                ModulePath::filesystem(root.join("deps/six/__init__.py")),
             ),
             (
                 "pandas",
@@ -4343,7 +4339,7 @@ mod tests {
         assert!(config.from_real_config_file());
         let result = find_import_with_mode(
             &config,
-            ModuleName::from_str("requests"),
+            ModuleName::from_str("six"),
             ImportLookupMode::TypeChecking,
             FindImportOptions::new(&DirEntryCache::new()),
         );
@@ -4357,7 +4353,7 @@ mod tests {
         );
 
         if let FindError::MissingImport(module, _) = error {
-            assert_eq!(module, ModuleName::from_str("requests"));
+            assert_eq!(module, ModuleName::from_str("six"));
         }
     }
 
@@ -4366,7 +4362,7 @@ mod tests {
         let config_synthetic = get_config(ConfigSource::Synthetic(None));
         let result_synthetic = find_import_with_mode(
             &config_synthetic,
-            ModuleName::from_str("requests"),
+            ModuleName::from_str("six"),
             ImportLookupMode::TypeChecking,
             FindImportOptions::new(&DirEntryCache::new()),
         );
@@ -4379,7 +4375,7 @@ mod tests {
         let config_marker = get_config(ConfigSource::Marker("".into()));
         let result_marker = find_import_with_mode(
             &config_marker,
-            ModuleName::from_str("requests"),
+            ModuleName::from_str("six"),
             ImportLookupMode::TypeChecking,
             FindImportOptions::new(&DirEntryCache::new()),
         );
@@ -4395,15 +4391,12 @@ mod tests {
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
 
-        // Set up site package directory with 'requests' installed but no stubs
+        // Set up site package directory with 'six' installed but no stubs
         TestPath::setup_test_directory(
             root,
             vec![TestPath::dir(
                 "site_packages",
-                vec![TestPath::dir(
-                    "requests",
-                    vec![TestPath::file("__init__.py")],
-                )],
+                vec![TestPath::dir("six", vec![TestPath::file("__init__.py")])],
             )],
         );
 
@@ -4413,7 +4406,7 @@ mod tests {
 
         let result = find_import_with_mode(
             &config,
-            ModuleName::from_str("requests"),
+            ModuleName::from_str("six"),
             ImportLookupMode::TypeChecking,
             FindImportOptions::new(&DirEntryCache::new()),
         );
@@ -4426,8 +4419,8 @@ mod tests {
             let FindError::UntypedImport(module, stubs_package) = error else {
                 panic!("Expected UntypedImport error, got: {:?}", error);
             };
-            assert_eq!(*module, ModuleName::from_str("requests"));
-            assert_eq!(stubs_package.as_str(), "types-requests");
+            assert_eq!(*module, ModuleName::from_str("six"));
+            assert_eq!(stubs_package.as_str(), "types-six");
         } else {
             panic!(
                 "Expected Finding with UntypedImport error, got: {:?}",
@@ -4441,13 +4434,13 @@ mod tests {
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
 
-        // Set up site package directory with typed 'requests' installed but no stubs
+        // Set up site package directory with typed 'six' installed but no stubs
         TestPath::setup_test_directory(
             root,
             vec![TestPath::dir(
                 "site_packages",
                 vec![TestPath::dir(
-                    "requests",
+                    "six",
                     vec![TestPath::file("py.typed"), TestPath::file("__init__.py")],
                 )],
             )],
@@ -4459,7 +4452,7 @@ mod tests {
 
         let result = find_import_with_mode(
             &config,
-            ModuleName::from_str("requests"),
+            ModuleName::from_str("six"),
             ImportLookupMode::TypeChecking,
             FindImportOptions::new(&DirEntryCache::new()),
         );
@@ -4484,7 +4477,7 @@ mod tests {
             vec![TestPath::dir(
                 "site_packages",
                 vec![TestPath::dir(
-                    "requests",
+                    "six",
                     vec![TestPath::file("py.typed"), TestPath::file("__init__.py")],
                 )],
             )],
@@ -4497,14 +4490,14 @@ mod tests {
 
             let result = find_import(
                 &config,
-                ModuleName::from_str("requests"),
+                ModuleName::from_str("six"),
                 FindImportOptions::new(&DirEntryCache::new()),
             );
 
             assert_eq!(
                 result,
                 FindingOrError::new_finding(ModulePath::filesystem(
-                    root.join("site_packages/requests/__init__.py")
+                    root.join("site_packages/six/__init__.py")
                 ))
             );
         }
@@ -4601,10 +4594,7 @@ mod tests {
             vec![
                 TestPath::dir(
                     "typings",
-                    vec![TestPath::dir(
-                        "requests",
-                        vec![TestPath::file("__init__.pyi")],
-                    )],
+                    vec![TestPath::dir("six", vec![TestPath::file("__init__.pyi")])],
                 ),
                 TestPath::dir(
                     "src",
@@ -4625,9 +4615,9 @@ mod tests {
         // Only installed distributions can be untyped (PEP 561), so neither local
         // stubs nor first-party code on the search path is reported.
         assert_eq!(
-            find("requests"),
+            find("six"),
             FindingOrError::new_finding(ModulePath::filesystem(
-                root.join("typings/requests/__init__.pyi")
+                root.join("typings/six/__init__.pyi")
             ))
         );
         assert_eq!(
@@ -4643,13 +4633,13 @@ mod tests {
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
 
-        // Set up site package directory with typed 'requests' package and submodule
+        // Set up site package directory with typed 'six' package and submodule
         TestPath::setup_test_directory(
             root,
             vec![TestPath::dir(
                 "site_packages",
                 vec![TestPath::dir(
-                    "requests",
+                    "six",
                     vec![
                         TestPath::file("py.typed"),
                         TestPath::file("__init__.py"),
@@ -4665,7 +4655,7 @@ mod tests {
 
         let result = find_import_with_mode(
             &config,
-            ModuleName::from_str("requests.api"),
+            ModuleName::from_str("six.api"),
             ImportLookupMode::TypeChecking,
             FindImportOptions::new(&DirEntryCache::new()),
         );
@@ -4686,13 +4676,13 @@ mod tests {
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
 
-        // Set up site package directory with typed 'requests' package and submodule file
+        // Set up site package directory with typed 'six' package and submodule file
         TestPath::setup_test_directory(
             root,
             vec![TestPath::dir(
                 "site_packages",
                 vec![TestPath::dir(
-                    "requests",
+                    "six",
                     vec![
                         TestPath::file("py.typed"),
                         TestPath::file("__init__.py"),
@@ -4708,7 +4698,7 @@ mod tests {
 
         let result = find_import_with_mode(
             &config,
-            ModuleName::from_str("requests.api"),
+            ModuleName::from_str("six.api"),
             ImportLookupMode::TypeChecking,
             FindImportOptions::new(&DirEntryCache::new()),
         );
@@ -4775,17 +4765,17 @@ mod tests {
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
 
-        // Set up empty site package directory (no actual 'requests' package)
+        // Set up empty site package directory (no actual 'six' package)
         TestPath::setup_test_directory(root, vec![TestPath::dir("site_packages", vec![])]);
 
         let mut config = get_config(ConfigSource::Synthetic(None));
         config.python_environment.site_package_path = Some(vec![root.join("site_packages")]);
         config.configure();
 
-        // 'requests' exists in typeshed third party stubs but not in our site_packages
+        // 'six' exists in typeshed third party stubs but not in our site_packages
         let result = find_import_with_mode(
             &config,
-            ModuleName::from_str("requests"),
+            ModuleName::from_str("six"),
             ImportLookupMode::TypeChecking,
             FindImportOptions::new(&DirEntryCache::new()),
         );
@@ -4793,7 +4783,7 @@ mod tests {
         let FindError::MissingSourceForStubs(module) = result.error().unwrap() else {
             panic!("Expected MissingSourceForStubs error");
         };
-        assert_eq!(module, ModuleName::from_str("requests"));
+        assert_eq!(module, ModuleName::from_str("six"));
     }
 
     #[test]
@@ -4801,15 +4791,12 @@ mod tests {
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
 
-        // Set up site package directory with actual 'requests' package
+        // Set up site package directory with actual 'six' package
         TestPath::setup_test_directory(
             root,
             vec![TestPath::dir(
                 "site_packages",
-                vec![TestPath::dir(
-                    "requests",
-                    vec![TestPath::file("__init__.py")],
-                )],
+                vec![TestPath::dir("six", vec![TestPath::file("__init__.py")])],
             )],
         );
 
@@ -4817,10 +4804,10 @@ mod tests {
         config.python_environment.site_package_path = Some(vec![root.join("site_packages")]);
         config.configure();
 
-        // 'requests' exists in both typeshed third party stubs AND site_packages
+        // 'six' exists in both typeshed third party stubs AND site_packages
         let result = find_import_with_mode(
             &config,
-            ModuleName::from_str("requests"),
+            ModuleName::from_str("six"),
             ImportLookupMode::TypeChecking,
             FindImportOptions::new(&DirEntryCache::new()),
         );
@@ -4846,8 +4833,8 @@ mod tests {
             vec![TestPath::dir(
                 "site_packages",
                 vec![
-                    TestPath::dir("requests", vec![TestPath::file("__init__.py")]),
-                    TestPath::dir("requests-shape-stubs", vec![TestPath::file("__init__.pyi")]),
+                    TestPath::dir("six", vec![TestPath::file("__init__.py")]),
+                    TestPath::dir("six-shape-stubs", vec![TestPath::file("__init__.pyi")]),
                 ],
             )],
         );
@@ -4858,23 +4845,23 @@ mod tests {
 
         let result = find_import(
             &config,
-            ModuleName::from_str("requests"),
+            ModuleName::from_str("six"),
             FindImportOptions::new(&DirEntryCache::new()),
         );
         assert_eq!(
             result,
             FindingOrError::new_finding(ModulePath::filesystem(
-                root.join("site_packages/requests-shape-stubs/__init__.pyi")
+                root.join("site_packages/six-shape-stubs/__init__.pyi")
             )),
         );
     }
 
     #[test]
     fn test_find_third_party_stub_prioritizes_typeshed_over_bundled() {
-        // 'requests' exists in typeshed third party stubs, so it should
+        // 'six' exists in typeshed third party stubs, so it should
         // return BundledTypeshedThirdParty (typeshed is prioritized over other bundled stubs)
-        let result = find_third_party_stub(ModuleName::from_str("requests"), None);
-        assert!(result.is_some(), "Should find 'requests' stub");
+        let result = find_third_party_stub(ModuleName::from_str("six"), None);
+        assert!(result.is_some(), "Should find 'six' stub");
 
         if let Some(FindingOrError::Finding(finding)) = result {
             assert!(
@@ -4882,11 +4869,11 @@ mod tests {
                     finding.finding.details(),
                     ModulePathDetails::BundledTypeshedThirdParty(_)
                 ),
-                "Expected BundledTypeshedThirdParty for 'requests', got: {:?}",
+                "Expected BundledTypeshedThirdParty for 'six', got: {:?}",
                 finding.finding.details()
             );
         } else {
-            panic!("Expected Finding result for 'requests', got: {:?}", result);
+            panic!("Expected Finding result for 'six', got: {:?}", result);
         }
     }
 

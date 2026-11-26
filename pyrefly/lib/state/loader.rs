@@ -605,8 +605,8 @@ mod tests {
         TestPath::setup_test_directory(
             root,
             vec![
-                TestPath::dir("requests", vec![TestPath::file("__init__.py")]),
-                TestPath::dir("requests-shape-stubs", vec![TestPath::file("__init__.pyi")]),
+                TestPath::dir("six", vec![TestPath::file("__init__.py")]),
+                TestPath::dir("six-shape-stubs", vec![TestPath::file("__init__.pyi")]),
             ],
         );
         let first = ModulePath::memory(root.join("first/main.py"));
@@ -627,13 +627,13 @@ mod tests {
                 let loader = LoaderFindCache::new(config.dupe());
                 for origin in origins {
                     let path = loader
-                        .find_import(ModuleName::from_str("requests"), Some(origin), None)
+                        .find_import(ModuleName::from_str("six"), Some(origin), None)
                         .finding()
                         .unwrap();
                     if compatibility {
                         assert_eq!(
                             path,
-                            ModulePath::filesystem(root.join("requests-shape-stubs/__init__.pyi"))
+                            ModulePath::filesystem(root.join("six-shape-stubs/__init__.pyi"))
                         );
                     } else {
                         assert!(path.is_bundled(), "opt-out must restore the bundled stub");
