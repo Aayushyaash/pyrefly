@@ -5,6 +5,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+use pyrefly_python::sys_info::PythonVersion;
+
+use crate::test::util::TestEnv;
 use crate::testcase;
 
 // LateFutureImport: `from __future__ import` statements must appear at the beginning of the file,
@@ -227,5 +230,28 @@ testcase!(
     test_multiple_starred_expressions,
     r#"
 x, *y, *z = [1, 2, 3, 4]
+"#,
+);
+
+// PEP 810: `lazy` imports are only allowed at module level, outside `try` statements.
+testcase!(
+    bug = "Lazy imports in invalid places are not reported",
+    test_lazy_import_invalid_placement,
+    TestEnv::new_with_version(PythonVersion::new(3, 15, 0)),
+    r#"
+import contextlib
+lazy import json
+with contextlib.nullcontext():
+    lazy from os import path
+lazy from os import *
+lazy from __future__ import annotations
+def f():
+    lazy import json
+class C:
+    lazy import json
+try:
+    lazy import json
+except ImportError:
+    pass
 "#,
 );
