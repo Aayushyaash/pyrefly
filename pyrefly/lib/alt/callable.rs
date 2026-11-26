@@ -1789,20 +1789,19 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     kwparams.insert(name, (ty, NameOrigin::Param, required));
                 }
                 Param::Kwargs(name, ty) if let Some(typed_dict) = ty.unpacked_typed_dict() => {
+                    // Synthesized partial signatures may override a bound TypedDict key with
+                    // an optional named parameter while preserving the original Unpack tail.
                     self.typed_dict_fields(typed_dict).into_iter().for_each(
                         |(field_name, field)| {
-                            kwparams.insert(
-                                name_owner.push(field_name),
-                                (
-                                    type_owner.push(field.ty),
-                                    NameOrigin::UnpackedKwargs(name.as_ref()),
-                                    if field.required {
-                                        &Required::Required
-                                    } else {
-                                        &Required::Optional(None)
-                                    },
-                                ),
-                            );
+                            kwparams.entry(name_owner.push(field_name)).or_insert((
+                                type_owner.push(field.ty),
+                                NameOrigin::UnpackedKwargs(name.as_ref()),
+                                if field.required {
+                                    &Required::Required
+                                } else {
+                                    &Required::Optional(None)
+                                },
+                            ));
                         },
                     );
                     kwargs = match self.typed_dict_extra_items(typed_dict) {

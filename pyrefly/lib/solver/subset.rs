@@ -398,14 +398,17 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
                 ) => {
                     l_arg = l_args.next();
                 }
-                // Unpacked kwargs may carry required TypedDict keys, checked below.
-                (Some(Param::Kwargs(..)), None) => break,
-                (Some(Param::KwOnly(_, _, Required::Optional(_))), None) => {
-                    if u_param_matched_with_l_varargs.is_empty() {
+                // Keep a retained TypedDict's explicit overlays for keyword matching.
+                // The schema may require a field that partial binding made optional.
+                (Some(Param::Kwargs(_, ty)), None) if ty.unpacked_typed_dict().is_some() => {
+                    break;
+                }
+                (Some(Param::KwOnly(_, _, Required::Optional(_)) | Param::Kwargs(..)), None) => {
+                    if u_param_matched_with_l_varargs.is_empty()
+                        && !matches!(l_params.last(), Some(Param::Kwargs(_, ty)) if ty.unpacked_typed_dict().is_some())
+                    {
                         l_arg = l_args.next();
                     } else {
-                        // Keep keyword-only params from `l` to check that matched params
-                        // from `u` can also be called by name.
                         break;
                     }
                 }
@@ -646,14 +649,22 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
                 let l_kwargs = l_kwargs_param.and_then(|l_param| {
                     let (keywords, extra) = self.split_kwargs(l_param.as_type());
                     for (name, ty, required) in keywords {
-                        l_keywords.insert(name, (ty, required == Required::Required, l_param));
+                        l_keywords.entry(name).or_insert((
+                            ty,
+                            required == Required::Required,
+                            l_param,
+                        ));
                     }
                     extra
                 });
                 let u_kwargs = u_kwargs_param.and_then(|u_param| {
                     let (keywords, extra) = self.split_kwargs(u_param.as_type());
                     for (name, ty, required) in keywords {
-                        u_keywords.insert(name, (ty, required == Required::Required, u_param));
+                        u_keywords.entry(name).or_insert((
+                            ty,
+                            required == Required::Required,
+                            u_param,
+                        ));
                     }
                     extra
                 });

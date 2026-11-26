@@ -63,7 +63,6 @@ plain_partial(0, arbitrary=1)  # E: Unexpected keyword argument `arbitrary`
 );
 
 testcase!(
-    bug = "Partial normalization loses an open TypedDict keyword contract",
     test_partial_typed_dict_keyword_contract,
     TestEnv::new().enable_strict_partial_subtyping(),
     r#"
@@ -83,8 +82,8 @@ def target(tag: Literal[1], **kwargs: Unpack[Open]) -> str: ...
 def target(tag: int, **kwargs: object) -> str: ...
 plain_bound = partial(plain, 0, x=1, label="bound")
 overloaded_bound = partial(target, 0, x=1, label="bound")
-plain_callback: Callback = plain_bound  # E: is not assignable to `Callback`
-overloaded_callback: Callback = overloaded_bound  # E: is not assignable to `Callback`
+plain_callback: Callback = plain_bound
+overloaded_callback: Callback = overloaded_bound
 plain_bound(label="ok")
 overloaded_bound(label="ok")
 plain_bound(x=2, label="ok")
@@ -96,8 +95,8 @@ overloaded_bound(label="ok", typo=1)  # E: Unexpected keyword argument `typo`
 class Extra(Open):
     arbitrary: object
 def forward(extra: Extra) -> None:
-    plain_bound(**extra)  # E: Unexpected keyword argument `arbitrary`
-    overloaded_bound(**extra)  # E: Unexpected keyword argument `arbitrary`
+    plain_bound(**extra)
+    overloaded_bound(**extra)
 "#,
 );
 
@@ -549,7 +548,8 @@ def fn1(a1: int) -> None: ...
 def fn2(**kwargs: Unpack[D1]) -> None: ...
 def main5(**d2: Unpack[D2]) -> None:
     partial(fn1, **d2)()  # E: Unexpected keyword argument `a2` in function `fn1`
-    partial(fn2, **d2)()  # E: Unexpected keyword argument `a2` in function `fn2`
+    # TypedDict subtypes can carry extra keys when forwarded to unpacked kwargs.
+    partial(fn2, **d2)()
 "#,
 );
 

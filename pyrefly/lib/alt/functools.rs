@@ -16,7 +16,6 @@ use pyrefly_types::class::ClassType;
 use pyrefly_types::known_class::KnownClass;
 use pyrefly_types::quantified::Quantified;
 use pyrefly_types::quantified::QuantifiedKind;
-use pyrefly_types::typed_dict::ExtraItems;
 use pyrefly_types::types::Var;
 use ruff_python_ast::Expr;
 use ruff_python_ast::name::Name;
@@ -550,18 +549,23 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                     partial_params(&inst, &bound_args, &is_placeholder, &bound_kw_names)
                 {
                     for param in remaining.items() {
-                        let (ty, required) = match param {
-                            Param::PosOnly(_, t, r)
-                            | Param::Pos(_, t, r)
-                            | Param::KwOnly(_, t, r) => (t, r),
-                            // `*args`/`**kwargs` carry no `Required` flag, but a later call can always
-                            // pass more arguments through them, so their typevars must stay symbolic.
-                            Param::Varargs(_, t) | Param::Kwargs(_, t) => (t, &Required::Required),
+                        let vars = match param {
+                            Param::Kwargs(_, ty) if let Some(td) = ty.unpacked_typed_dict() => {
+                                // Declared fields are represented by named overlays. Only the
+                                // type of genuine extra items remains variadic here.
+                                self.typed_dict_extra_items(td)
+                                    .extra_item(self.stdlib)
+                                    .ty
+                                    .collect_all_vars()
+                            }
+                            Param::PosOnly(_, ty, Required::Required)
+                            | Param::Pos(_, ty, Required::Required)
+                            | Param::KwOnly(_, ty, Required::Required)
+                            | Param::Varargs(_, ty)
+                            | Param::Kwargs(_, ty) => ty.collect_all_vars(),
+                            _ => continue,
                         };
-                        if !matches!(required, Required::Required) {
-                            continue;
-                        }
-                        for v in ty.collect_all_vars() {
+                        for v in vars {
                             if var_to_q.contains_key(&v) {
                                 regeneric_vars.insert(v);
                             }
@@ -730,27 +734,40 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
         Some(names)
     }
 
-    /// Expand each `**kwargs: Unpack[TypedDict]` into one keyword-only param per field so the ordinary
-    /// partial-signature logic handles them. Only explicitly typed extra items become a trailing
-    /// `**kwargs`; open TypedDicts still restrict explicit keyword names.
+    /// Expose TypedDict fields for partial keyword binding, retaining their unpacked contract.
+    /// Named parameters override the corresponding fields after binding so required keys can
+    /// become optional without losing the policy for extra keyword arguments.
     fn expand_unpack_kwargs(&self, callable: &mut Callable) {
         let Params::List(params) = &mut callable.params else {
             return;
         };
+        if !params.items().iter().any(
+            |param| matches!(param, Param::Kwargs(_, ty) if ty.unpacked_typed_dict().is_some()),
+        ) {
+            return;
+        }
+        let explicit_names: SmallSet<&Name> = params
+            .items()
+            .iter()
+            .filter_map(|param| match param {
+                Param::Pos(name, ..) | Param::KwOnly(name, ..) => Some(name),
+                _ => None,
+            })
+            .collect();
         let mut expanded: Vec<Param> = Vec::with_capacity(params.items().len());
         for param in params.items() {
-            match param {
-                Param::Kwargs(_, ty) if let Some(td) = ty.unpacked_typed_dict() => {
-                    for (name, ty, required) in self.typed_dict_kw_param_info(td) {
+            if let Param::Kwargs(_, ty) = param
+                && let Some(td) = ty.unpacked_typed_dict()
+            {
+                for (name, ty, required) in self.typed_dict_kw_param_info(td) {
+                    if !explicit_names.contains(&name) {
                         expanded.push(Param::KwOnly(name, ty, required));
                     }
-                    if let ExtraItems::Extra(extra) = self.typed_dict_extra_items(td) {
-                        expanded.push(Param::Kwargs(None, extra.ty));
-                    }
                 }
-                _ => expanded.push(param.clone()),
             }
+            expanded.push(param.clone());
         }
+        drop(explicit_names);
         *params = ParamList::new(expanded);
     }
 }
