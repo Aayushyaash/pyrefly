@@ -1247,6 +1247,109 @@ b: Traditional = src  # E: `(**kwargs: Unpack[TD]) -> None` is not assignable to
 "#,
 );
 
+// https://github.com/python/typing/pull/2338
+testcase!(
+    test_assignability_typed_dict_kwargs_tails,
+    r#"
+from typing import Never, Protocol, ReadOnly, TypedDict, Unpack
+class Closed(TypedDict, closed=True):
+    x: int
+class Open(TypedDict):
+    x: int
+class ExtraInt(TypedDict, extra_items=int):
+    x: int
+class ExtraStr(TypedDict, extra_items=str):
+    x: int
+class ExtraObject(TypedDict, extra_items=ReadOnly[object]):
+    x: int
+class ExtraNever(TypedDict, extra_items=Never):
+    x: int
+class ClosedCall(Protocol):
+    def __call__(self, **kwargs: Unpack[Closed]) -> None: ...
+class OpenCall(Protocol):
+    def __call__(self, **kwargs: Unpack[Open]) -> None: ...
+class IntCall(Protocol):
+    def __call__(self, **kwargs: Unpack[ExtraInt]) -> None: ...
+class StrCall(Protocol):
+    def __call__(self, **kwargs: Unpack[ExtraStr]) -> None: ...
+class ObjectCall(Protocol):
+    def __call__(self, **kwargs: Unpack[ExtraObject]) -> None: ...
+class NeverCall(Protocol):
+    def __call__(self, **kwargs: Unpack[ExtraNever]) -> None: ...
+class FixedCall(Protocol):
+    def __call__(self, *, x: int) -> None: ...
+class TraditionalIntCall(Protocol):
+    def __call__(self, *, x: int, **kwargs: int) -> None: ...
+def test(closed: ClosedCall, open: OpenCall, ints: IntCall, strings: StrCall,
+         objects: ObjectCall, never: NeverCall, traditional: TraditionalIntCall) -> None:
+    fixed_closed: FixedCall = closed
+    fixed_never: FixedCall = never
+    closed_fixed: ClosedCall = fixed_closed
+    closed_never: ClosedCall = never
+    never_closed: NeverCall = closed
+    closed_ints: ClosedCall = ints
+    ints_closed: IntCall = closed  # E: `ClosedCall` is not assignable to `IntCall`
+    strings_ints: StrCall = ints  # E: `IntCall` is not assignable to `StrCall`
+    ints_strings: IntCall = strings  # E: `StrCall` is not assignable to `IntCall`
+    ints_objects: IntCall = objects
+    objects_ints: ObjectCall = ints  # E: `IntCall` is not assignable to `ObjectCall`
+    open_objects: OpenCall = objects
+    objects_open: ObjectCall = open
+    open_ints: OpenCall = ints  # E: `IntCall` is not assignable to `OpenCall`
+    ints_open: IntCall = open
+    traditional_ints: TraditionalIntCall = ints
+    ints_traditional: IntCall = traditional
+    open_traditional: OpenCall = traditional  # E: `TraditionalIntCall` is not assignable to `OpenCall`
+    closed_traditional: TraditionalIntCall = closed  # E: `ClosedCall` is not assignable to `TraditionalIntCall`
+"#,
+);
+
+testcase!(
+    test_assignability_typed_dict_kwargs_optional_keys,
+    r#"
+from typing import NotRequired, Protocol, TypedDict, Unpack
+class Base(TypedDict):
+    x: int
+class OptionalKey(Base):
+    y: NotRequired[int]
+class BaseCall(Protocol):
+    def __call__(self, **kwargs: Unpack[Base]) -> None: ...
+class OptionalCall(Protocol):
+    def __call__(self, **kwargs: Unpack[OptionalKey]) -> None: ...
+def test(base: BaseCall, optional: OptionalCall) -> None:
+    base_optional: BaseCall = optional  # E: `OptionalCall` is not assignable to `BaseCall`
+    optional_base: OptionalCall = base
+class Parent:
+    def f(self, **kwargs: Unpack[Base]) -> None: ...
+class NarrowOptional(Parent):
+    def f(self, **kwargs: Unpack[OptionalKey]) -> None: ...  # E: Class member `NarrowOptional.f` overrides parent class `Parent` in an inconsistent manner
+class DropKwargs(Parent):
+    def f(self, *, x: int, extra: bool = False) -> None: ...  # E: Class member `DropKwargs.f` overrides parent class `Parent` in an inconsistent manner
+class CompatibleOptional(Parent):
+    def f(self, *, x: int, y: object = None, **kwargs: object) -> None: ...
+class NarrowNamedOptional(Parent):
+    def f(self, *, x: int, y: int = 0, **kwargs: object) -> None: ...  # E: Class member `NarrowNamedOptional.f` overrides parent class `Parent` in an inconsistent manner
+"#,
+);
+
+testcase!(
+    bug = "An unpacked kwargs parameter can hide required keys from callable subtyping",
+    test_assignability_typed_dict_kwargs_empty_destination,
+    r#"
+from typing import Protocol, TypedDict, Unpack
+class RequiredKey(TypedDict, closed=True):
+    x: int
+class Empty(TypedDict, closed=True):
+    pass
+class NoArgs(Protocol):
+    def __call__(self) -> None: ...
+def required(**kwargs: Unpack[RequiredKey]) -> None: ...
+def empty(**kwargs: Unpack[Empty]) -> None: ...
+a: NoArgs = required  # BUG: required x is missing
+b: NoArgs = empty
+"#,
+);
+
 testcase!(
     test_forwarding_unpack_kwargs_to_fixed_signature,
     TestEnv::new().enable_open_unpacking_error(),
