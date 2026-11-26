@@ -3277,3 +3277,22 @@ def f(b: Box[datetime.date], local: Local, xs: list[int]) -> None:
         reveal_type(b)  # E: revealed type: foo.Box[datetime.date] (_.attr: datetime.date)
 "#,
 );
+
+// PEP 798: unpacking in comprehensions, added in Python 3.15.
+testcase!(
+    bug = "Unpacking in comprehensions (PEP 798) is not inferred",
+    test_unpacking_in_comprehensions,
+    TestEnv::new_with_version(PythonVersion::new(3, 15, 0)),
+    r#"
+from typing import Generator, assert_type
+def f(lists: list[list[int]], sets: list[set[str]], dicts: list[dict[str, bytes]]):
+    assert_type([*l for l in lists], list[int])  # E: assert_type(list[*Unknown], list[int]) failed  # E: Expected a type form
+    assert_type({*s for s in sets}, set[str])  # E: assert_type(set[*Unknown], set[str]) failed  # E: not hashable  # E: Expected a type form
+    assert_type({**d for d in dicts}, dict[str, bytes])  # E: assert_type(dict[Unknown, dict[str, bytes]], dict[str, bytes]) failed
+    assert_type((*l for l in lists), Generator[int, None, None])  # E: assert_type(Generator[*Unknown], Generator[int]) failed  # E: Expected a type form
+    x: list[object] = [*l for l in lists]  # E: Expected a type form
+    y: dict[str, object] = {**d for d in dicts}
+    [*1 for _ in lists]  # E: Expected a type form, got instance of `Literal[1]`
+    {**1 for _ in lists}
+"#,
+);
