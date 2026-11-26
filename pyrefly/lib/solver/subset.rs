@@ -398,12 +398,14 @@ impl<'solver, 'subset, Ans: LookupAnswer> Subset<'solver, 'subset, Ans> {
                 ) => {
                     l_arg = l_args.next();
                 }
-                (Some(Param::KwOnly(_, _, Required::Optional(_)) | Param::Kwargs(_, _)), None) => {
+                // Unpacked kwargs may carry required TypedDict keys, checked below.
+                (Some(Param::Kwargs(..)), None) => break,
+                (Some(Param::KwOnly(_, _, Required::Optional(_))), None) => {
                     if u_param_matched_with_l_varargs.is_empty() {
                         l_arg = l_args.next();
                     } else {
-                        // Don't consume kw-only and kwarg params from `l` yet, we need them to
-                        // check that the matched params from `u` can be called by name
+                        // Keep keyword-only params from `l` to check that matched params
+                        // from `u` can also be called by name.
                         break;
                     }
                 }

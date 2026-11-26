@@ -1366,7 +1366,6 @@ class NarrowNamedOptional(Parent):
 );
 
 testcase!(
-    bug = "An unpacked kwargs parameter can hide required keys from callable subtyping",
     test_assignability_typed_dict_kwargs_empty_destination,
     r#"
 from typing import Protocol, TypedDict, Unpack
@@ -1378,7 +1377,7 @@ class NoArgs(Protocol):
     def __call__(self) -> None: ...
 def required(**kwargs: Unpack[RequiredKey]) -> None: ...
 def empty(**kwargs: Unpack[Empty]) -> None: ...
-a: NoArgs = required  # BUG: required x is missing
+a: NoArgs = required  # E: `(**kwargs: Unpack[RequiredKey]) -> None` is not assignable to `NoArgs`
 b: NoArgs = empty
 "#,
 );
