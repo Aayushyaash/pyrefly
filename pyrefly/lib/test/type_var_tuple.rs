@@ -661,14 +661,23 @@ Ts = TypeVarTuple("Ts", int, str)  # E: Unexpected positional argument  # E: Une
 
 // Python 3.15 adds `bound`, `covariant`, `contravariant`, and `infer_variance` to `TypeVarTuple`.
 testcase!(
-    bug = "`bound` is reported as an unexpected keyword",
     test_type_var_tuple_py315_keywords,
     TestEnv::new_with_version(PythonVersion::new(3, 15, 0)),
     r#"
 from typing import TypeVarTuple
-Ts = TypeVarTuple("Ts", bound=int)  # E: Unexpected keyword argument `bound` to TypeVarTuple
+Ts = TypeVarTuple("Ts", bound=int)
+Xs = TypeVarTuple("Xs", bound=1)  # E: Expected a type form
 Us = TypeVarTuple("Us", covariant=True)
 Vs = TypeVarTuple("Vs", contravariant=True)
 Ws = TypeVarTuple("Ws", infer_variance=True)
+"#,
+);
+
+testcase!(
+    test_type_var_tuple_bound_before_py315,
+    TestEnv::new_with_version(PythonVersion::new(3, 14, 0)),
+    r#"
+from typing import TypeVarTuple
+Ts = TypeVarTuple("Ts", bound=int)  # E: Unexpected keyword argument `bound` to TypeVarTuple
 "#,
 );
