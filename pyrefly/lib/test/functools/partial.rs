@@ -62,6 +62,72 @@ plain_partial(0, arbitrary=1)  # E: Unexpected keyword argument `arbitrary`
 "#,
 );
 
+testcase!(
+    bug = "Partial normalization loses an open TypedDict keyword contract",
+    test_partial_typed_dict_keyword_contract,
+    TestEnv::new().enable_strict_partial_subtyping(),
+    r#"
+from functools import partial
+from typing import Literal, Protocol, TypedDict, Unpack, overload
+class Open(TypedDict):
+    x: int
+    label: str
+class Callback(Protocol):
+    def __call__(self, **kwargs: Unpack[Open]) -> str: ...
+def plain(tag: int, **kwargs: Unpack[Open]) -> str:
+    return kwargs["label"]
+@overload
+def target(tag: Literal[0], **kwargs: Unpack[Open]) -> str: ...
+@overload
+def target(tag: Literal[1], **kwargs: Unpack[Open]) -> str: ...
+def target(tag: int, **kwargs: object) -> str: ...
+plain_bound = partial(plain, 0, x=1, label="bound")
+overloaded_bound = partial(target, 0, x=1, label="bound")
+plain_callback: Callback = plain_bound  # E: is not assignable to `Callback`
+overloaded_callback: Callback = overloaded_bound  # E: is not assignable to `Callback`
+plain_bound(label="ok")
+overloaded_bound(label="ok")
+plain_bound(x=2, label="ok")
+overloaded_bound(x=2, label="ok")
+plain_bound(label=1)  # E: is not assignable to parameter `label` with type `str`
+overloaded_bound(label=1)  # E: is not assignable to parameter `label` with type `str`
+plain_bound(label="ok", typo=1)  # E: Unexpected keyword argument `typo`
+overloaded_bound(label="ok", typo=1)  # E: Unexpected keyword argument `typo`
+class Extra(Open):
+    arbitrary: object
+def forward(extra: Extra) -> None:
+    plain_bound(**extra)  # E: Unexpected keyword argument `arbitrary`
+    overloaded_bound(**extra)  # E: Unexpected keyword argument `arbitrary`
+"#,
+);
+
+testcase!(
+    test_partial_typed_dict_bound_fields,
+    TestEnv::new().enable_strict_partial_subtyping(),
+    r#"
+from functools import partial
+from typing import Callable, TypedDict, Unpack, assert_type
+class Closed[T](TypedDict, closed=True):
+    value: T
+
+def target[T](**kwargs: Unpack[Closed[T]]) -> T:
+    return kwargs["value"]
+bound = partial(target, value=1)
+assert_type(bound(), int)
+callback: Callable[[], int] = bound
+bound(value="wrong")  # E: is not assignable to parameter `value` with type `int`
+
+class TwoKeys(TypedDict, closed=True):
+    x: int
+    y: str
+
+def closed(**kwargs: Unpack[TwoKeys]) -> None: ...
+closed_bound = partial(closed, x=1, y="bound")
+empty_callback: Callable[[], None] = closed_bound
+closed_bound()
+"#,
+);
+
 // ===== Basic: bind nothing / positional / keyword =====
 
 functools_testcase!(
