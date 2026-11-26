@@ -23,7 +23,6 @@ use crate::test::util::TestEnv;
 use crate::testcase;
 
 testcase!(
-    bug = "Overloaded partials retain bound TypedDict keys",
     test_partial_overload_bound_typed_dict_keys,
     TestEnv::new().enable_strict_partial_subtyping(),
     r#"
@@ -45,13 +44,13 @@ def cache(cursor: int, *, kind: str, **kwargs: object) -> None: ...
 open_partial = partial(cache, kind="open", connection="c")
 closed_partial = partial(cache, kind="closed", connection="c")
 extra_partial = partial(cache, kind="extra", connection="c")
-open_partial(0)  # E: Missing argument `connection`
-open_partial(0, arbitrary=1)  # E: Missing argument `connection`  # E: Unexpected keyword argument `arbitrary`
+open_partial(0)
+open_partial(0, arbitrary=1)  # E: Unexpected keyword argument `arbitrary`
 open_partial(0, connection="override")
-closed_partial(0)  # E: Missing argument `connection`
-closed_partial(0, bogus=1)  # E: Missing argument `connection`  # E: Unexpected keyword argument `bogus`
-extra_partial(0, count=1)  # E: Missing argument `connection`
-extra_partial(0, count="wrong")  # E: Missing argument `connection`  # E: Keyword argument `count` with type `Literal['wrong']`
+closed_partial(0)
+closed_partial(0, bogus=1)  # E: Unexpected keyword argument `bogus`
+extra_partial(0, count=1)
+extra_partial(0, count="wrong")  # E: Keyword argument `count` with type `Literal['wrong']`
 open_callback: Callable[[int], None] = open_partial
 closed_callback: Callable[[int], None] = closed_partial
 extra_callback: Callable[[int], None] = extra_partial

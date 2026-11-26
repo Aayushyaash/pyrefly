@@ -403,7 +403,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 if trial.has_hard() || !specialization_ok {
                     continue;
                 }
-                let branch_sig = if generic {
+                let mut branch_sig = if generic {
                     let mut ty = self.heap.mk_callable_from(branch_sig);
                     self.solver().expand_mut(&mut ty, self);
                     let Type::Callable(callable) = ty else {
@@ -413,6 +413,7 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
                 } else {
                     branch_sig
                 };
+                self.expand_unpack_kwargs(&mut branch_sig);
                 // Defer the whole overload rather than silently drop a matched branch we can't
                 // represent, which would break a call that only matched that branch.
                 match partial_callable(&branch_sig, &bound_args, &is_placeholder, &bound_kw_names) {
@@ -730,7 +731,8 @@ impl<'ctx, 'answer, Ans: LookupAnswer> AnswersSolver<'ctx, 'answer, Ans> {
     }
 
     /// Expand each `**kwargs: Unpack[TypedDict]` into one keyword-only param per field so the ordinary
-    /// partial-signature logic handles them. An open TypedDict's extra items become a trailing `**kwargs`.
+    /// partial-signature logic handles them. Only explicitly typed extra items become a trailing
+    /// `**kwargs`; open TypedDicts still restrict explicit keyword names.
     fn expand_unpack_kwargs(&self, callable: &mut Callable) {
         let Params::List(params) = &mut callable.params else {
             return;
